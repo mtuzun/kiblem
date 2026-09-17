@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:math' show pi, cos, sin;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:adhan/adhan.dart';
@@ -12,10 +13,53 @@ import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_qiblah/flutter_qiblah.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:in_app_update/in_app_update.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:share_plus/share_plus.dart';
+import 'package:home_widget/home_widget.dart';
 
 import 'city_data.dart';
+import 'onboarding_screen.dart';
 
-void main() {
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+const MethodChannel ringtoneChannel = MethodChannel('com.metint.kiblem/ringtone');
+
+final GlobalKey qiblaButtonKey = GlobalKey();
+final GlobalKey prayerListKey = GlobalKey();
+final GlobalKey dailyAyahKey = GlobalKey();
+final GlobalKey zikirButtonKey = GlobalKey();
+final GlobalKey settingsButtonKey = GlobalKey();
+final ValueNotifier<bool> showCoachMarks = ValueNotifier<bool>(false);
+final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
+
+Future<void> setThemeMode(ThemeMode mode) async {
+  themeModeNotifier.value = mode;
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('theme_mode', mode.name);
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  MobileAds.instance.initialize();
+
+  tz_data.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
+  await flutterLocalNotificationsPlugin.initialize(
+    settings: const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    ),
+  );
+
+  final prefs = await SharedPreferences.getInstance();
+  themeModeNotifier.value = ThemeMode.values.firstWhere(
+    (m) => m.name == prefs.getString('theme_mode'),
+    orElse: () => ThemeMode.system,
+  );
+
   runApp(const MyApp());
 }
 
@@ -24,15 +68,72 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Kuran ve Namaz Rehberi',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.green,
-        scaffoldBackgroundColor: const Color(0xFF8DCFB3),
-        fontFamily: 'Montserrat',
-      ),
-      home: const MainScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          title: 'Kıble ve Namaz Rehberim',
+          debugShowCheckedModeBanner: false,
+          themeMode: mode,
+          theme: ThemeData(
+            brightness: Brightness.light,
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+            scaffoldBackgroundColor: const Color(0xFF8DCFB3),
+            fontFamily: 'Montserrat',
+          ),
+          darkTheme: ThemeData(
+            brightness: Brightness.dark,
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.dark),
+            fontFamily: 'Montserrat',
+          ),
+          home: const AppEntry(),
+        );
+      },
+    );
+  }
+}
+
+class AppEntry extends StatefulWidget {
+  const AppEntry({super.key});
+
+  @override
+  State<AppEntry> createState() => _AppEntryState();
+}
+
+class _AppEntryState extends State<AppEntry> {
+  @override
+  void initState() {
+    super.initState();
+    _checkOnboarding();
+  }
+
+  Future<void> _checkOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool('has_seen_onboarding') ?? false;
+    if (!seen) {
+      showCoachMarks.value = true;
+    }
+  }
+
+  Future<void> _finishCoachMarks() async {
+    showCoachMarks.value = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_seen_onboarding', true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        const MainScreen(),
+        ValueListenableBuilder<bool>(
+          valueListenable: showCoachMarks,
+          builder: (context, visible, _) {
+            if (!visible) return const SizedBox.shrink();
+            return CoachMarkOverlay(onFinished: _finishCoachMarks);
+          },
+        ),
+      ],
     );
   }
 }
@@ -63,6 +164,14 @@ class _MainScreenState extends State<MainScreen> {
   AudioPlayer? audioPlayer;
   bool isPlaying = false;
   bool isAutoPlaying = false;
+
+  BannerAd? _bannerAd;
+  bool _isBannerAdLoaded = false;
+
+  bool azanReminderEnabled = false;
+  int azanReminderMinutes = 15;
+  String? azanSoundTitle;
+  String? _lastWidgetKey;
 
   final List<String> _cities = [
     'Adana', 'Adıyaman', 'Afyonkarahisar', 'Ağrı', 'Amasya', 'Ankara', 'Antalya', 'Artvin', 'Aydın', 'Balıkesir', 
@@ -105,13 +214,66 @@ class _MainScreenState extends State<MainScreen> {
       _updateTimeLeft();
       setState((){}); // forces build to update the top-right clock directly
     });
+
+    _loadBannerAd();
+    _checkForUpdate();
+    _loadAzanReminderSetting();
   }
 
   @override
   void dispose() {
     timer?.cancel();
     audioPlayer?.dispose();
+    _bannerAd?.dispose();
     super.dispose();
+  }
+
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-8893360722009141/9012768354',
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          if (mounted) {
+            setState(() {
+              _isBannerAdLoaded = true;
+            });
+          }
+        },
+        onAdFailedToLoad: (ad, error) {
+          ad.dispose();
+          debugPrint("Banner reklam yüklenemedi: $error");
+        },
+      ),
+    )..load();
+  }
+
+  Future<void> _checkForUpdate() async {
+    if (kIsWeb) return;
+    try {
+      final info = await InAppUpdate.checkForUpdate();
+      if (info.updateAvailability == UpdateAvailability.updateAvailable) {
+        if (info.flexibleUpdateAllowed) {
+          await InAppUpdate.startFlexibleUpdate();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              duration: const Duration(days: 1),
+              content: const Text("Yeni bir sürüm indirildi."),
+              action: SnackBarAction(
+                label: "GÜNCELLE",
+                onPressed: () => InAppUpdate.completeFlexibleUpdate(),
+              ),
+            ),
+          );
+        } else if (info.immediateUpdateAllowed) {
+          await InAppUpdate.performImmediateUpdate();
+        }
+      }
+    } catch (e) {
+      debugPrint("Güncelleme kontrolü başarısız: $e");
+    }
   }
 
   Future<void> _loadSavedCity() async {
@@ -424,6 +586,259 @@ class _MainScreenState extends State<MainScreen> {
       prayerTimes = pTimes;
     });
     _updateTimeLeft();
+    if (azanReminderEnabled) {
+      _scheduleAzanReminders();
+    }
+  }
+
+  Future<void> _loadAzanReminderSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool('azan_reminder_enabled') ?? false;
+    setState(() {
+      azanReminderEnabled = enabled;
+      azanReminderMinutes = prefs.getInt('azan_reminder_minutes') ?? 15;
+      azanSoundTitle = prefs.getString('azan_sound_title');
+    });
+    if (enabled && prayerTimes != null) {
+      _scheduleAzanReminders();
+    }
+  }
+
+  Future<void> _pickAzanSound() async {
+    if (kIsWeb) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final currentUri = prefs.getString('azan_sound_uri');
+
+      final pickedUri = await ringtoneChannel.invokeMethod<String>(
+        'pickRingtone',
+        {'currentUri': currentUri},
+      );
+      if (pickedUri == null) return;
+
+      final title = await ringtoneChannel.invokeMethod<String>(
+            'getRingtoneTitle',
+            {'uri': pickedUri},
+          ) ??
+          'Özel Ses';
+
+      await ringtoneChannel.invokeMethod('setChannelSound', {'uri': pickedUri});
+      await prefs.setString('azan_sound_uri', pickedUri);
+      await prefs.setString('azan_sound_title', title);
+
+      if (!mounted) return;
+      setState(() {
+        azanSoundTitle = title;
+      });
+    } catch (e) {
+      debugPrint("Ezan sesi seçilemedi: $e");
+    }
+  }
+
+  Future<void> _setAzanReminderEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('azan_reminder_enabled', value);
+    setState(() {
+      azanReminderEnabled = value;
+    });
+
+    if (value) {
+      final androidPlugin = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.requestNotificationsPermission();
+      _scheduleAzanReminders();
+    } else {
+      await _cancelAzanReminders();
+    }
+  }
+
+  Future<void> _scheduleAzanReminders() async {
+    if (prayerTimes == null) return;
+    await _cancelAzanReminders();
+
+    final prayers = <int, DateTime>{
+      0: prayerTimes!.fajr,
+      1: prayerTimes!.dhuhr,
+      2: prayerTimes!.asr,
+      3: prayerTimes!.maghrib,
+      4: prayerTimes!.isha,
+    };
+
+    for (final entry in prayers.entries) {
+      final reminderTime = entry.value.subtract(Duration(minutes: azanReminderMinutes));
+      if (reminderTime.isBefore(DateTime.now())) continue;
+
+      final prayerName = _getPrayerName(_prayerFromIndex(entry.key));
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        id: entry.key,
+        title: 'Namaz Vakti Yaklaşıyor',
+        body: '$prayerName vaktine $azanReminderMinutes dakika kaldı.',
+        scheduledDate: tz.TZDateTime.from(reminderTime, tz.local),
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'azan_reminder',
+            'Ezan Hatırlatıcı',
+            channelDescription: 'Namaz vaktine seçtiğin süre kala bildirim gönderir.',
+            importance: Importance.high,
+            priority: Priority.high,
+            playSound: true,
+            enableVibration: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    }
+  }
+
+  Future<void> _setAzanReminderMinutes(int minutes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('azan_reminder_minutes', minutes);
+    setState(() {
+      azanReminderMinutes = minutes;
+    });
+    if (azanReminderEnabled) {
+      _scheduleAzanReminders();
+    }
+  }
+
+  Prayer _prayerFromIndex(int index) {
+    switch (index) {
+      case 0: return Prayer.fajr;
+      case 1: return Prayer.dhuhr;
+      case 2: return Prayer.asr;
+      case 3: return Prayer.maghrib;
+      default: return Prayer.isha;
+    }
+  }
+
+  Future<void> _cancelAzanReminders() async {
+    for (int id = 0; id < 5; id++) {
+      await flutterLocalNotificationsPlugin.cancel(id: id);
+    }
+  }
+
+
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Ayarlar"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text("Ezan Hatırlatıcısı"),
+                    subtitle: Text("Namaz vaktine $azanReminderMinutes dakika kala bildirim gönder."),
+                    value: azanReminderEnabled,
+                    onChanged: (value) async {
+                      await _setAzanReminderEnabled(value);
+                      setDialogState(() {});
+                    },
+                  ),
+                  if (azanReminderEnabled) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "Ezana $azanReminderMinutes dakika kala uyarı verilecektir.",
+                              style: TextStyle(color: Colors.green[700], fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Row(
+                        children: [
+                          const Text("Süre:", style: TextStyle(fontSize: 13)),
+                          Expanded(
+                            child: Slider(
+                              value: azanReminderMinutes.toDouble(),
+                              min: 1,
+                              max: 15,
+                              divisions: 14,
+                              label: "$azanReminderMinutes dk",
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  azanReminderMinutes = value.round();
+                                });
+                              },
+                              onChangeEnd: (value) => _setAzanReminderMinutes(value.round()),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 40,
+                            child: Text("$azanReminderMinutes dk", style: const TextStyle(fontSize: 13)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.music_note_outlined),
+                      title: const Text("Ezan Sesini Seç"),
+                      subtitle: Text(
+                        azanSoundTitle != null
+                            ? "Seçili ses: $azanSoundTitle"
+                            : "Sadece bu hatırlatıcı için bir ses seç (telefonunun zil/bildirim sesini değiştirmez).",
+                      ),
+                      onTap: () async {
+                        await _pickAzanSound();
+                        setDialogState(() {});
+                      },
+                    ),
+                  ],
+                  const Divider(height: 24),
+                  const Text("Görünüm", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: themeModeNotifier,
+                    builder: (context, mode, _) {
+                      return SegmentedButton<ThemeMode>(
+                        segments: const [
+                          ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode), label: Text("Açık")),
+                          ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode), label: Text("Koyu")),
+                          ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.settings_suggest), label: Text("Sistem")),
+                        ],
+                        selected: {mode},
+                        onSelectionChanged: (selected) => setThemeMode(selected.first),
+                      );
+                    },
+                  ),
+                  const Divider(height: 24),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.play_circle_outline),
+                    title: const Text("Uygulama Tanıtımını Göster"),
+                    onTap: () {
+                      Navigator.pop(context);
+                      showCoachMarks.value = true;
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Kapat"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _updateTimeLeft() {
@@ -454,6 +869,26 @@ class _MainScreenState extends State<MainScreen> {
       timeLeft = "$hours:$minutes:$seconds";
       nextPrayerName = _getPrayerName(nextPrayer!);
     });
+
+    final widgetKey = "$nextPrayerName-${nextPrayerTime.hour}:${nextPrayerTime.minute}";
+    if (widgetKey != _lastWidgetKey) {
+      _lastWidgetKey = widgetKey;
+      _updateHomeWidget(nextPrayerName, nextPrayerTime);
+    }
+  }
+
+  Future<void> _updateHomeWidget(String prayerName, DateTime prayerTime) async {
+    if (kIsWeb) return;
+    try {
+      final timeStr =
+          "${prayerTime.hour.toString().padLeft(2, '0')}:${prayerTime.minute.toString().padLeft(2, '0')}";
+      await HomeWidget.saveWidgetData<String>('widget_city', currentCity);
+      await HomeWidget.saveWidgetData<String>('widget_prayer_name', prayerName);
+      await HomeWidget.saveWidgetData<String>('widget_prayer_time', timeStr);
+      await HomeWidget.updateWidget(androidName: 'PrayerWidgetProvider');
+    } catch (e) {
+      debugPrint("Widget güncellenemedi: $e");
+    }
   }
 
   String _getPrayerName(Prayer prayer) {
@@ -473,7 +908,8 @@ class _MainScreenState extends State<MainScreen> {
     final dayOfYear = DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
     // Base hue based on day of year (0-360)
     final baseHue = (dayOfYear * (360 / 365)) % 360;
-    final backgroundColor = HSLColor.fromAHSL(1.0, baseHue, 0.4, 0.6).toColor();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = HSLColor.fromAHSL(1.0, baseHue, 0.4, isDark ? 0.28 : 0.6).toColor();
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -488,13 +924,19 @@ class _MainScreenState extends State<MainScreen> {
                 child: SingleChildScrollView(
                   child: Column(
                     children: [
-                      _buildPrayerList(),
-                      _buildDailyAyah(),
+                      KeyedSubtree(key: prayerListKey, child: _buildPrayerList()),
+                      KeyedSubtree(key: dailyAyahKey, child: _buildDailyAyah()),
                       const SizedBox(height: 20),
                     ],
                   ),
                 ),
               ),
+              if (_isBannerAdLoaded && _bannerAd != null)
+                SizedBox(
+                  width: _bannerAd!.size.width.toDouble(),
+                  height: _bannerAd!.size.height.toDouble(),
+                  child: AdWidget(ad: _bannerAd!),
+                ),
             ],
           ),
         ),
@@ -562,6 +1004,7 @@ class _MainScreenState extends State<MainScreen> {
                         tooltip: "Mevcut Konumu Bul",
                       ),
                       IconButton(
+                        key: qiblaButtonKey,
                         icon: const Icon(Icons.explore, color: Colors.white),
                         tooltip: "Kıble Yönü",
                         onPressed: () {
@@ -575,6 +1018,7 @@ class _MainScreenState extends State<MainScreen> {
                         },
                       ),
                       IconButton(
+                        key: zikirButtonKey,
                         icon: const Icon(Icons.timer, color: Colors.white),
                         tooltip: "Zikirmatik / Sayaç",
                         onPressed: () {
@@ -583,6 +1027,12 @@ class _MainScreenState extends State<MainScreen> {
                             builder: (context) => const ZikirmatikDialog(),
                           );
                         },
+                      ),
+                      IconButton(
+                        key: settingsButtonKey,
+                        icon: const Icon(Icons.settings, color: Colors.white),
+                        tooltip: "Ayarlar",
+                        onPressed: _showSettingsDialog,
                       ),
                     ],
                   ),
@@ -689,7 +1139,7 @@ class _MainScreenState extends State<MainScreen> {
             Text(
               dailyAyahData!['arabic'],
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 20, fontFamily: 'Amiri', fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 20, fontFamily: 'Amiri', fontWeight: FontWeight.bold, color: Colors.black87),
             ),
             const SizedBox(height: 8),
             Text(
@@ -821,6 +1271,14 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _shareAyah(Map<String, dynamic> data) {
+    final text = "${data['surah']}, ${data['numberInSurah']}. Ayet\n\n"
+        "${data['arabic']}\n\n"
+        "${data['turkish1'] ?? ''}\n\n"
+        "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.";
+    SharePlus.instance.share(ShareParams(text: text));
+  }
+
   void _showAyahDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -829,6 +1287,9 @@ class _MainScreenState extends State<MainScreen> {
           valueListenable: dailyAyahNotifier,
           builder: (context, dynamicData, child) {
             if (dynamicData == null) return const SizedBox();
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final bodyTextColor = isDark ? Colors.grey[300] : Colors.grey[800];
+            final translitColor = isDark ? Colors.green[300] : Colors.green[800];
             return Dialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               child: Padding(
@@ -889,7 +1350,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         dynamicData['transliteration'] ?? '',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.green[800], fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+                        style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
                       ),
                       const Divider(height: 30),
                       const Text("Diyanet İşleri Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
@@ -897,7 +1358,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         dynamicData['turkish1'] ?? '',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.grey[800], height: 1.5),
+                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
                       ),
                       const SizedBox(height: 15),
                       const Text("Elmalılı Hamdi Yazır Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
@@ -905,7 +1366,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         dynamicData['turkish2'] ?? '',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.grey[800], height: 1.5),
+                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
                       ),
                       const SizedBox(height: 15),
                       const Text("English Translation (Sahih Int.)", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
@@ -913,7 +1374,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         dynamicData['english'] ?? '',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.grey[800], height: 1.5),
+                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
                       ),
                   const SizedBox(height: 20),
                   Row(
@@ -932,6 +1393,12 @@ class _MainScreenState extends State<MainScreen> {
                             onPressed: _toggleAudio,
                           );
                         }
+                      ),
+                      IconButton(
+                        iconSize: 32,
+                        icon: const Icon(Icons.share, color: Colors.green),
+                        tooltip: "Paylaş",
+                        onPressed: () => _shareAyah(dynamicData),
                       ),
                       ElevatedButton(
                         onPressed: () {
@@ -1011,8 +1478,68 @@ class QiblaScreen extends StatefulWidget {
   State<QiblaScreen> createState() => _QiblaScreenState();
 }
 
+enum _QiblaReadiness { noSensor, serviceDisabled, permissionDenied, permissionDeniedForever, ready }
+
 class _QiblaScreenState extends State<QiblaScreen> {
-  final _deviceSupport = FlutterQiblah.androidDeviceSensorSupport();
+  late Future<_QiblaReadiness> _readinessFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _readinessFuture = _prepare();
+  }
+
+  void _retry() {
+    setState(() {
+      _readinessFuture = _prepare();
+    });
+  }
+
+  Future<_QiblaReadiness> _prepare() async {
+    final sensorOk = await FlutterQiblah.androidDeviceSensorSupport() ?? true;
+    if (!sensorOk) return _QiblaReadiness.noSensor;
+
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      return _QiblaReadiness.serviceDisabled;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied) {
+      return _QiblaReadiness.permissionDenied;
+    }
+    if (permission == LocationPermission.deniedForever) {
+      return _QiblaReadiness.permissionDeniedForever;
+    }
+    return _QiblaReadiness.ready;
+  }
+
+  Widget _buildMessage({
+    required IconData icon,
+    required String message,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56, color: Colors.grey[500]),
+            const SizedBox(height: 20),
+            Text(message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 20),
+              ElevatedButton(onPressed: onAction, child: Text(actionLabel)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1021,20 +1548,50 @@ class _QiblaScreenState extends State<QiblaScreen> {
         title: const Text('Kıble Yönü'),
         backgroundColor: const Color(0xFF6DAF89),
       ),
-      body: FutureBuilder(
-        future: _deviceSupport,
-        builder: (_, AsyncSnapshot<bool?> snapshot) {
+      body: FutureBuilder<_QiblaReadiness>(
+        future: _readinessFuture,
+        builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            return Center(child: Text("Hata: ${snapshot.error.toString()}"));
-          }
 
-          if (snapshot.data!) {
-            return const QiblaCompass();
-          } else {
-            return const Center(child: Text("Cihazınızda pusula sensörü bulunmuyor."));
+          switch (snapshot.data) {
+            case _QiblaReadiness.noSensor:
+              return _buildMessage(
+                icon: Icons.explore_off,
+                message: "Cihazınızda pusula sensörü bulunmuyor.",
+              );
+            case _QiblaReadiness.serviceDisabled:
+              return _buildMessage(
+                icon: Icons.location_off,
+                message: "Kıble yönünü bulabilmemiz için telefonunun konum servisini açman gerekiyor.",
+                actionLabel: "Konum Ayarlarını Aç",
+                onAction: () async {
+                  await Geolocator.openLocationSettings();
+                  _retry();
+                },
+              );
+            case _QiblaReadiness.permissionDenied:
+              return _buildMessage(
+                icon: Icons.location_disabled,
+                message: "Kıble yönünü hesaplayabilmemiz için konum iznine ihtiyacımız var.",
+                actionLabel: "İzin Ver",
+                onAction: _retry,
+              );
+            case _QiblaReadiness.permissionDeniedForever:
+              return _buildMessage(
+                icon: Icons.location_disabled,
+                message: "Konum izni reddedilmiş. Kıble yönünü gösterebilmemiz için uygulama ayarlarından konum iznini açman gerekiyor.",
+                actionLabel: "Uygulama Ayarlarını Aç",
+                onAction: () async {
+                  await Geolocator.openAppSettings();
+                  _retry();
+                },
+              );
+            case _QiblaReadiness.ready:
+              return const QiblaCompass();
+            default:
+              return const SizedBox();
           }
         },
       ),
@@ -1055,7 +1612,23 @@ class QiblaCompass extends StatelessWidget {
         }
 
         if (snapshot.hasError) {
-          return Center(child: Text("Hata: ${snapshot.error.toString()}"));
+          return Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.location_disabled, size: 56, color: Colors.grey[700]),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "Konumuna ulaşamadık. Konum servisinin açık olduğundan emin olup tekrar dener misin?",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data == null) {
@@ -1063,26 +1636,60 @@ class QiblaCompass extends StatelessWidget {
         }
 
         final qiblahDirection = snapshot.data!;
-        
+
+        // qiblahDirection.qiblah = heading - offset (mod 360): how far the
+        // Kaaba marker sits from the device's current heading, measured the
+        // opposite way round from the compass ring's own rotation. Negating
+        // it here keeps both rotations in the same clockwise convention, so
+        // the marker lands at the Kaaba's true screen position instead of
+        // its mirror image.
+        final markerAngle = qiblahDirection.qiblah * (pi / 180) * -1;
+
+        // Signed remaining angle to rotate to face the Kaaba exactly, in (-180, 180].
+        var remaining = qiblahDirection.qiblah % 360;
+        if (remaining > 180) remaining -= 360;
+        final isAligned = remaining.abs() <= 3;
+
         return Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                "Kıble Açısı: ${qiblahDirection.qiblah.toStringAsFixed(1)}°",
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: isAligned ? Colors.green.shade700 : Colors.black87,
+                ),
+                child: Text(
+                  isAligned
+                      ? "Kıbleyi Buldunuz!"
+                      : "Kıbleye dönmek için ${remaining.abs().toStringAsFixed(0)}° ${remaining > 0 ? 'sağa' : 'sola'} çevirin",
+                  textAlign: TextAlign.center,
+                ),
               ),
-              const SizedBox(height: 50),
+              const SizedBox(height: 8),
+              Text(
+                "Kıble, kuzeyden ${qiblahDirection.offset.toStringAsFixed(1)}° yönünde",
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 40),
               Stack(
                 alignment: Alignment.center,
                 children: [
                   // Background container just for aesthetics
-                  Container(
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
                     width: 300,
                     height: 300,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.2),
+                      color: isAligned
+                          ? Colors.green.withValues(alpha: 0.25)
+                          : Colors.white.withValues(alpha: 0.2),
+                      border: isAligned
+                          ? Border.all(color: Colors.green, width: 3)
+                          : null,
                     ),
                   ),
                   // Dial with directions
@@ -1095,14 +1702,18 @@ class QiblaCompass extends StatelessWidget {
                   ),
                   // Kaaba Indicator
                   Transform.rotate(
-                    angle: (qiblahDirection.qiblah * (pi / 180)),
+                    angle: markerAngle,
                     child: Container(
                       width: 300,
                       height: 300,
                       alignment: Alignment.topCenter,
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 5),
-                        child: Icon(Icons.mosque, size: 50, color: Colors.green),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Icon(
+                          Icons.mosque,
+                          size: isAligned ? 58 : 50,
+                          color: isAligned ? Colors.amber.shade700 : Colors.green,
+                        ),
                       ),
                     ),
                   ),
@@ -1111,7 +1722,7 @@ class QiblaCompass extends StatelessWidget {
                     top: -15,
                     child: Icon(Icons.arrow_drop_up, size: 40, color: Colors.black54),
                   ),
-                  const Icon(Icons.fiber_manual_record, size: 15, color: Colors.green),
+                  Icon(Icons.fiber_manual_record, size: 15, color: isAligned ? Colors.amber.shade700 : Colors.green),
                 ],
               ),
               const SizedBox(height: 40),
