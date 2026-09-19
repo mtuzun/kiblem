@@ -1,7 +1,9 @@
 package com.metint.kiblem
 
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -42,6 +44,25 @@ class MainActivity : FlutterActivity() {
                 "getRingtoneTitle" -> {
                     val uriString = call.argument<String>("uri")
                     result.success(getRingtoneTitleForUri(uriString))
+                }
+                "scheduleAzanAlarm" -> {
+                    val id = call.argument<Int>("id") ?: 0
+                    val triggerAtMillis = (call.argument<Number>("triggerAtMillis"))?.toLong() ?: 0L
+                    val prayerName = call.argument<String>("prayerName") ?: "Namaz"
+                    scheduleAzanAlarm(id, triggerAtMillis, prayerName)
+                    result.success(null)
+                }
+                "cancelAzanAlarm" -> {
+                    val id = call.argument<Int>("id") ?: 0
+                    cancelAzanAlarm(id)
+                    result.success(null)
+                }
+                "canScheduleExactAlarms" -> {
+                    result.success(canScheduleExactAlarms())
+                }
+                "requestExactAlarmPermission" -> {
+                    requestExactAlarmPermission()
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
@@ -90,5 +111,50 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun azanAlarmPendingIntent(id: Int): PendingIntent {
+        val intent = Intent(this, AzanAlarmReceiver::class.java)
+        return PendingIntent.getBroadcast(
+            this, id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun scheduleAzanAlarm(id: Int, triggerAtMillis: Long, prayerName: String) {
+        val intent = Intent(this, AzanAlarmReceiver::class.java).apply {
+            putExtra(AzanRingerService.EXTRA_PRAYER_NAME, prayerName)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            this, id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+        if (!canExact) {
+            // İzin verilmemişse en azından yaklaşık zamanlı alarm kur; tamamen sessiz kalmasın.
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            return
+        }
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+    }
+
+    private fun cancelAzanAlarm(id: Int) {
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.cancel(azanAlarmPendingIntent(id))
+    }
+
+    private fun canScheduleExactAlarms(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        return alarmManager.canScheduleExactAlarms()
+    }
+
+    private fun requestExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        startActivity(intent)
     }
 }

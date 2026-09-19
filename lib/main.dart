@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 import 'dart:math' show pi, cos, sin;
 import 'package:flutter/material.dart';
@@ -647,6 +648,35 @@ class _MainScreenState extends State<MainScreen> {
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
+
+      if (!kIsWeb && Platform.isAndroid) {
+        final canScheduleExact = await ringtoneChannel.invokeMethod<bool>('canScheduleExactAlarms') ?? true;
+        if (!canScheduleExact && mounted) {
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('İzin Gerekli'),
+              content: const Text(
+                'Ezan hatırlatıcısının tam zamanında çalabilmesi için "Alarmlar ve Hatırlatıcılar" iznini açman gerekiyor. Açılan ayarlar ekranından bu uygulamaya izin ver.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Vazgeç'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    ringtoneChannel.invokeMethod('requestExactAlarmPermission');
+                  },
+                  child: const Text('Ayarları Aç'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+
       _scheduleAzanReminders();
     } else {
       await _cancelAzanReminders();
@@ -670,24 +700,11 @@ class _MainScreenState extends State<MainScreen> {
       if (reminderTime.isBefore(DateTime.now())) continue;
 
       final prayerName = _getPrayerName(_prayerFromIndex(entry.key));
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        id: entry.key,
-        title: 'Namaz Vakti Yaklaşıyor',
-        body: '$prayerName vaktine $azanReminderMinutes dakika kaldı.',
-        scheduledDate: tz.TZDateTime.from(reminderTime, tz.local),
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'azan_reminder',
-            'Ezan Hatırlatıcı',
-            channelDescription: 'Namaz vaktine seçtiğin süre kala bildirim gönderir.',
-            importance: Importance.high,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      );
+      await ringtoneChannel.invokeMethod('scheduleAzanAlarm', {
+        'id': entry.key,
+        'triggerAtMillis': reminderTime.millisecondsSinceEpoch,
+        'prayerName': prayerName,
+      });
     }
   }
 
@@ -714,7 +731,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _cancelAzanReminders() async {
     for (int id = 0; id < 5; id++) {
-      await flutterLocalNotificationsPlugin.cancel(id: id);
+      await ringtoneChannel.invokeMethod('cancelAzanAlarm', {'id': id});
     }
   }
 
@@ -734,7 +751,7 @@ class _MainScreenState extends State<MainScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text("Ezan Hatırlatıcısı"),
-                    subtitle: Text("Namaz vaktine $azanReminderMinutes dakika kala bildirim gönder."),
+                    subtitle: Text("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır."),
                     value: azanReminderEnabled,
                     onChanged: (value) async {
                       await _setAzanReminderEnabled(value);
@@ -750,7 +767,7 @@ class _MainScreenState extends State<MainScreen> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              "Ezana $azanReminderMinutes dakika kala uyarı verilecektir.",
+                              "Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.",
                               style: TextStyle(color: Colors.green[700], fontSize: 13),
                             ),
                           ),
@@ -960,81 +977,82 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 4,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.white70),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: DropdownButton<String>(
-                          value: currentCity,
-                          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-                          dropdownColor: const Color(0xFF6DAF89),
-                          underline: const SizedBox(), // Remove default underline
-                          style: const TextStyle(color: Colors.white, fontSize: 16),
-                          items: _cities.map((String city) {
-                            return DropdownMenuItem<String>(
-                              value: city,
-                              child: Text(city),
-                            );
-                          }).toList(),
-                          onChanged: (String? newValue) {
-                            if (newValue != null && newValue != currentCity) {
-                              setState(() {
-                                currentCity = newValue;
-                                prayerTimes = null; // show loading
-                              });
-                              _saveCity(newValue);
-                              _calculatePrayerTimesForCity(newValue);
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      IconButton(
-                        icon: isLocating 
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : const Icon(Icons.my_location, color: Colors.white),
-                        onPressed: isLocating ? null : _findLocationInBackground,
-                        tooltip: "Mevcut Konumu Bul",
-                      ),
-                      IconButton(
-                        key: qiblaButtonKey,
-                        icon: const Icon(Icons.explore, color: Colors.white),
-                        tooltip: "Kıble Yönü",
-                        onPressed: () {
-                          if (kIsWeb) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.')),
-                            );
-                            return;
-                          }
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const QiblaScreen()));
-                        },
-                      ),
-                      IconButton(
-                        key: zikirButtonKey,
-                        icon: const Icon(Icons.timer, color: Colors.white),
-                        tooltip: "Zikirmatik / Sayaç",
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => const ZikirmatikDialog(),
-                          );
-                        },
-                      ),
-                      IconButton(
-                        key: settingsButtonKey,
-                        icon: const Icon(Icons.settings, color: Colors.white),
-                        tooltip: "Ayarlar",
-                        onPressed: _showSettingsDialog,
-                      ),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.white70),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: DropdownButton<String>(
+                      value: currentCity,
+                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+                      dropdownColor: const Color(0xFF6DAF89),
+                      underline: const SizedBox(), // Remove default underline
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      items: _cities.map((String city) {
+                        return DropdownMenuItem<String>(
+                          value: city,
+                          child: Text(city),
+                        );
+                      }).toList(),
+                      onChanged: (String? newValue) {
+                        if (newValue != null && newValue != currentCity) {
+                          setState(() {
+                            currentCity = newValue;
+                            prayerTimes = null; // show loading
+                          });
+                          _saveCity(newValue);
+                          _calculatePrayerTimesForCity(newValue);
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: isLocating
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.my_location, color: Colors.white),
+                    onPressed: isLocating ? null : _findLocationInBackground,
+                    tooltip: "Mevcut Konumu Bul",
+                  ),
+                  IconButton(
+                    key: qiblaButtonKey,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.explore, color: Colors.white),
+                    tooltip: "Kıble Yönü",
+                    onPressed: () {
+                      if (kIsWeb) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.')),
+                        );
+                        return;
+                      }
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const QiblaScreen()));
+                    },
+                  ),
+                  IconButton(
+                    key: zikirButtonKey,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.timer, color: Colors.white),
+                    tooltip: "Zikirmatik / Sayaç",
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => const ZikirmatikDialog(),
+                      );
+                    },
+                  ),
+                  IconButton(
+                    key: settingsButtonKey,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.settings, color: Colors.white),
+                    tooltip: "Ayarlar",
+                    onPressed: _showSettingsDialog,
                   ),
                 ],
               ),
