@@ -1,6 +1,7 @@
 workflows:
   ios-workflow:
     name: Kıblem iOS
+    instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
       app_store_connect: kiblem_app_store_connect
@@ -10,7 +11,7 @@ workflows:
         bundle_identifier: com.metint.kiblem
       vars:
         APP_STORE_APPLE_ID: 0000000000 # App Store Connect'te uygulama oluşturunca güncellenecek
-      flutter: stable
+      flutter: 3.41.4 # Yerel sürümle aynı; "stable" değişirse derleme bozulmasın diye sabitlendi
       xcode: latest
       cocoapods: default
     scripts:
@@ -20,6 +21,9 @@ workflows:
       - name: Get Flutter packages
         script: |
           flutter packages pub get
+      - name: Analyze Dart code
+        script: |
+          flutter analyze --no-fatal-infos
       - name: Install pods
         script: |
           find . -name "Podfile" -maxdepth 2 -execdir pod install \;

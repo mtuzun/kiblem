@@ -1106,6 +1106,7 @@ class _MainScreenState extends State<MainScreen> {
             return ValueListenableBuilder<String>(
               valueListenable: langNotifier,
               builder: (context, _, _) => AlertDialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               title: Text(t("Ayarlar", "Settings")),
               content: SingleChildScrollView(child: Column(
                 mainAxisSize: MainAxisSize.min,
