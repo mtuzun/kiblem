@@ -1518,24 +1518,35 @@ class _MainScreenState extends State<MainScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        t("$nextPrayerName vaktine kalan süre", "Time until $nextPrayerName"),
-                        style: const TextStyle(color: Colors.white, fontSize: 16),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        timeLeft,
-                        style: const TextStyle(
-                          color: Colors.white, 
-                          fontSize: 32, 
-                          fontWeight: FontWeight.bold
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            t("$nextPrayerName vaktine kalan süre", "Time until $nextPrayerName"),
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 5),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            timeLeft,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   _buildClockNode(),
                 ],
               ),
