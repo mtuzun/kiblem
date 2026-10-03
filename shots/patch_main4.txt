@@ -1,0 +1,298 @@
+<<<<
+import 'l10n.dart';
+====
+import 'l10n.dart';
+import 'offline_quran.dart';
+>>>>
+<<<<
+  await loadSavedLanguage();
+
+  runApp
+====
+  await loadSavedLanguage();
+  unawaited(OfflineQuran.init());
+
+  runApp
+>>>>
+<<<<
+    _loadAzanReminderSetting();
+  }
+
+  @override
+  void dispose() {
+====
+    _loadAzanReminderSetting();
+    Future.delayed(const Duration(seconds: 5), _maybeOfferOfflineDownload);
+  }
+
+  @override
+  void dispose() {
+    _audioNoticeTimer?.cancel();
+>>>>
+<<<<
+  void _onLangChanged() {
+====
+  final ValueNotifier<String?> audioNotice = ValueNotifier(null);
+  Timer? _audioNoticeTimer;
+
+  void _showAudioNotice() {
+    audioNotice.value = t(
+      "Sesli okunuş için internet gerekiyor. Lütfen mobil veriyi veya Wi-Fi'ı aç.",
+      "Audio recitation needs an internet connection. Please turn on mobile data or Wi-Fi.",
+    );
+    _audioNoticeTimer?.cancel();
+    _audioNoticeTimer = Timer(const Duration(seconds: 6), () => audioNotice.value = null);
+  }
+
+  final ValueNotifier<String?> offlineNotice = ValueNotifier(null);
+
+  Future<void> _startOfflineDownload() async {
+    offlineNotice.value = null;
+    final result = await OfflineQuran.download();
+    if (!mounted) return;
+    if (result == OfflineResult.noInternet) {
+      offlineNotice.value = t(
+        "İnternet bağlantısı yok. Mobil veriyi veya Wi-Fi'ı açıp tekrar dene.",
+        "No internet connection. Turn on mobile data or Wi-Fi and try again.",
+      );
+    } else if (result == OfflineResult.failed) {
+      offlineNotice.value = t(
+        "İndirme tamamlanamadı. Bağlantını kontrol edip tekrar dene.",
+        "The download could not be completed. Check your connection and try again.",
+      );
+    }
+  }
+
+  // Uygulamayı kurduktan sonraki ilk turdan sonra, internet varken bir kez önerir.
+  Future<void> _maybeOfferOfflineDownload() async {
+    if (kIsWeb || !mounted) return;
+    await OfflineQuran.initFuture;
+    if (OfflineQuran.state.value != OfflineState.none) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('offline_prompt_done') ?? false) return;
+    if (!(prefs.getBool('has_seen_onboarding') ?? false) || showCoachMarks.value) return;
+    if (!await hasInternet()) return;
+    if (!mounted) return;
+    final accept = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(t("Çevrimdışı kullanım", "Offline use")),
+        content: Text(t(
+          "Ayetleri internet olmadan da okuyabilmek için tüm Kur'an metnini (~9 MB) indirmek ister misin? Wi-Fi kullanman önerilir. Sonradan Ayarlar'dan da indirebilirsin.",
+          "Would you like to download the full Quran text (~9 MB) so you can read verses without internet? Wi-Fi is recommended. You can also do this later in Settings.",
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(t("Şimdi değil", "Not now"))),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(t("İndir", "Download"))),
+        ],
+      ),
+    );
+    await prefs.setBool('offline_prompt_done', true);
+    if (accept != true) return;
+    await _startOfflineDownload();
+    if (!mounted) return;
+    if (OfflineQuran.state.value == OfflineState.ready) {
+      _showSnackBar(t("Ayetler çevrimdışı kullanıma hazır.", "Verses are ready for offline use."));
+    }
+  }
+
+  Widget _buildOfflineTile() {
+    return ValueListenableBuilder<OfflineState>(
+      valueListenable: OfflineQuran.state,
+      builder: (context, st, _) {
+        if (st == OfflineState.downloading) {
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cloud_download_outlined),
+            title: Text(t("Kur'an metni indiriliyor…", "Downloading Quran text…")),
+            subtitle: ValueListenableBuilder<double>(
+              valueListenable: OfflineQuran.progress,
+              builder: (context, p, _) => Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(value: p == 0 ? null : p),
+              ),
+            ),
+          );
+        }
+        if (st == OfflineState.ready) {
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.offline_pin, color: Colors.green),
+            title: Text(t("Çevrimdışı Kur'an Metni", "Offline Quran Text")),
+            subtitle: Text(t(
+              "İndirildi: tüm ayetler internetsiz okunabilir. (Sesli okunuş internet ister.)",
+              "Downloaded: all verses can be read without internet. (Audio recitation needs internet.)",
+            )),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: t("Sil", "Delete"),
+              onPressed: OfflineQuran.delete,
+            ),
+          );
+        }
+        return ValueListenableBuilder<String?>(
+          valueListenable: offlineNotice,
+          builder: (context, msg, _) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cloud_download_outlined),
+            title: Text(t("Çevrimdışı Kur'an Metni", "Offline Quran Text")),
+            subtitle: Text(
+              msg ??
+                  t(
+                    "Tüm ayetleri internetsiz okumak için indir (~9 MB indirme, ~5 MB yer). Wi-Fi önerilir.",
+                    "Download all verses to read without internet (~9 MB download, ~5 MB storage). Wi-Fi recommended.",
+                  ),
+              style: msg == null ? null : TextStyle(color: Colors.red[700]),
+            ),
+            onTap: _startOfflineDownload,
+          ),
+        );
+      },
+    );
+  }
+
+  void _onLangChanged() {
+>>>>
+<<<<
+    final prefs = await SharedPreferences.getInstance();
+    final cacheKey = "ayah_cache_uthmani_audio_en_$ayahNumber";
+====
+    await OfflineQuran.initFuture;
+    final offlineAyah = OfflineQuran.getAyah(ayahNumber);
+    if (offlineAyah != null) {
+      if (!mounted) return;
+      setState(() {
+        dailyAyahData = offlineAyah;
+        dailyAyahNotifier.value = offlineAyah;
+        isLoadingAyah = false;
+      });
+      if (isAutoPlaying) {
+        _playOnlyAudio();
+      }
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final cacheKey = "ayah_cache_uthmani_audio_en_$ayahNumber";
+>>>>
+<<<<
+    if (audioUrl != null) {
+      await audioPlayer!.play(UrlSource(audioUrl));
+    }
+  }
+
+  void _nextAyah
+====
+    if (audioUrl != null) {
+      if (!await hasInternet()) {
+        isAutoPlaying = false;
+        _showAudioNotice();
+        return;
+      }
+      await audioPlayer!.play(UrlSource(audioUrl));
+    }
+  }
+
+  void _nextAyah
+>>>>
+<<<<
+      isAutoPlaying = true;
+      try {
+        await audioPlayer!.play(UrlSource(audioUrl));
+====
+      if (!await hasInternet()) {
+        _showAudioNotice();
+        return;
+      }
+      isAutoPlaying = true;
+      try {
+        await audioPlayer!.play(UrlSource(audioUrl));
+>>>>
+<<<<
+      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks[0];
+        String foundCity = place.administrativeArea ?? place.locality ?? "İstanbul";
+====
+      // Şehir adını bulmak internet ister; yoksa koordinata en yakın şehre düşülür.
+      List<Placemark> placemarks = [];
+      try {
+        placemarks = await placemarkFromCoordinates(position.latitude, position.longitude)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {}
+      final geocoded = placemarks.isNotEmpty;
+      {
+        final place = geocoded ? placemarks[0] : null;
+        String foundCity = place == null
+            ? _nearestCity(position.latitude, position.longitude)
+            : (place.administrativeArea ?? place.locality ?? "İstanbul");
+>>>>
+<<<<
+        _showSnackBar(t("$matchedCity konumu bulundu.", "Location found: $matchedCity."));
+====
+        _showSnackBar(geocoded
+            ? t("$matchedCity konumu bulundu.", "Location found: $matchedCity.")
+            : t(
+                "İnternet yok: konumuna en yakın şehir seçildi ($matchedCity). Daha doğru sonuç için mobil veriyi veya Wi-Fi'ı aç.",
+                "No internet: the nearest city was selected ($matchedCity). Turn on mobile data or Wi-Fi for a more accurate result.",
+              ));
+>>>>
+<<<<
+  void _showSnackBar(String message) {
+====
+  String _nearestCity(double lat, double lon) {
+    var best = "İstanbul";
+    var bestDistance = double.infinity;
+    for (final city in _cities) {
+      final c = cityCoordinates[city];
+      if (c == null) continue;
+      final d = Geolocator.distanceBetween(lat, lon, c[0], c[1]);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = city;
+      }
+    }
+    return best;
+  }
+
+  void _showSnackBar(String message) {
+>>>>
+<<<<
+                  const Divider(height: 24),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.play_circle_outline),
+====
+                  const Divider(height: 24),
+                  _buildOfflineTile(),
+                  const Divider(height: 24),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.play_circle_outline),
+>>>>
+<<<<
+                        child: Text(t("Kapat", "Close"), style: const TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  )
+                ],
+====
+                        child: Text(t("Kapat", "Close"), style: const TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                  ValueListenableBuilder<String?>(
+                    valueListenable: audioNotice,
+                    builder: (context, msg, _) => msg == null
+                        ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              msg,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.red, fontSize: 13),
+                            ),
+                          ),
+                  ),
+                ],
+>>>>

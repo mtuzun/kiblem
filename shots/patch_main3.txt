@@ -1,0 +1,109 @@
+<<<<
+        title: const Text('Kıble Yönü'),
+====
+        title: Text(t('Kıble Yönü', 'Qibla Direction')),
+>>>>
+<<<<
+                message: "Cihazınızda pusula sensörü bulunmuyor.",
+====
+                message: t("Cihazınızda pusula sensörü bulunmuyor.", "Your device has no compass sensor."),
+>>>>
+<<<<
+                message: "Kıble yönünü bulabilmemiz için telefonunun konum servisini açman gerekiyor.",
+                actionLabel: "Konum Ayarlarını Aç",
+====
+                message: t("Kıble yönünü bulabilmemiz için telefonunun konum servisini açman gerekiyor.", "Please turn on your phone's location service so we can find the qibla direction."),
+                actionLabel: t("Konum Ayarlarını Aç", "Open Location Settings"),
+>>>>
+<<<<
+                message: "Kıble yönünü hesaplayabilmemiz için konum iznine ihtiyacımız var.",
+                actionLabel: "İzin Ver",
+====
+                message: t("Kıble yönünü hesaplayabilmemiz için konum iznine ihtiyacımız var.", "We need location permission to calculate the qibla direction."),
+                actionLabel: t("İzin Ver", "Allow"),
+>>>>
+<<<<
+                message: "Konum izni reddedilmiş. Kıble yönünü gösterebilmemiz için uygulama ayarlarından konum iznini açman gerekiyor.",
+                actionLabel: "Uygulama Ayarlarını Aç",
+====
+                message: t("Konum izni reddedilmiş. Kıble yönünü gösterebilmemiz için uygulama ayarlarından konum iznini açman gerekiyor.", "Location permission was denied. Please enable it in the app settings so we can show the qibla direction."),
+                actionLabel: t("Uygulama Ayarlarını Aç", "Open App Settings"),
+>>>>
+<<<<
+                  const Text(
+                    "Konumuna ulaşamadık. Konum servisinin açık olduğundan emin olup tekrar dener misin?",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16),
+                  ),
+====
+                  Text(
+                    t("Konumuna ulaşamadık. Konum servisinin açık olduğundan emin olup tekrar dener misin?", "We couldn't get your location. Please make sure location services are on and try again."),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+>>>>
+<<<<
+          return const Center(child: Text("Pusula sensörü verisi bekleniyor. (Konumun açık olduğundan emin olun.)"));
+====
+          return Center(child: Text(t("Pusula sensörü verisi bekleniyor. (Konumun açık olduğundan emin olun.)", "Waiting for compass sensor data. (Make sure location is turned on.)")));
+>>>>
+<<<<
+                  isAligned
+                      ? "Kıbleyi Buldunuz!"
+                      : "Kıbleye dönmek için ${remaining.abs().toStringAsFixed(0)}° ${remaining > 0 ? 'sağa' : 'sola'} çevirin",
+====
+                  isAligned
+                      ? t("Kıbleyi Buldunuz!", "You are facing the Qibla!")
+                      : t(
+                          "Kıbleye dönmek için ${remaining.abs().toStringAsFixed(0)}° ${remaining > 0 ? 'sağa' : 'sola'} çevirin",
+                          "Turn ${remaining.abs().toStringAsFixed(0)}° to the ${remaining > 0 ? 'right' : 'left'} to face the Qibla",
+                        ),
+>>>>
+<<<<
+                "Kıble, kuzeyden ${qiblahDirection.offset.toStringAsFixed(1)}° yönünde",
+====
+                t("Kıble, kuzeyden ${qiblahDirection.offset.toStringAsFixed(1)}° yönünde", "Qibla is ${qiblahDirection.offset.toStringAsFixed(1)}° from north"),
+>>>>
+<<<<
+              const Text("Pusulayı hizalamak için cihazınızı uzak tutun ve yatay çevirin.", textAlign: TextAlign.center),
+====
+              Text(t("Pusulayı hizalamak için cihazınızı uzak tutun ve yatay çevirin.", "To align the compass, hold your device flat and away from metal objects."), textAlign: TextAlign.center),
+>>>>
+<<<<
+                  label: const Text(
+                    "Sıfırla",
+                    style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+====
+                  label: Text(
+                    t("Sıfırla", "Reset"),
+                    style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+>>>>
+<<<<
+                const Text(
+                  "Zikirmatik",
+                  style: TextStyle(
+====
+                Text(
+                  t("Zikirmatik", "Dhikr Counter"),
+                  style: const TextStyle(
+>>>>
+<<<<
+                  const Text(
+                    "SAYAC",
+                    style: TextStyle(
+====
+                  Text(
+                    t("SAYAC", "COUNT"),
+                    style: const TextStyle(
+>>>>
+<<<<
+                                  const Text(
+                                    "BAS",
+                                    style: TextStyle(
+====
+                                  Text(
+                                    t("BAS", "TAP"),
+                                    style: const TextStyle(
+>>>>

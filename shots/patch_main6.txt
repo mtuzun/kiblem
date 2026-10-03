@@ -1,0 +1,115 @@
+<<<<
+import 'offline_quran.dart';
+====
+import 'offline_quran.dart';
+import 'text_zoom.dart';
+>>>>
+<<<<
+  await loadSavedLanguage();
+  unawaited(OfflineQuran.init());
+====
+  await loadSavedLanguage();
+  await loadSavedTextZoom();
+  unawaited(OfflineQuran.init());
+>>>>
+<<<<
+          home: const AppEntry(),
+====
+          builder: (context, child) => ValueListenableBuilder<double?>(
+            valueListenable: textZoomNotifier,
+            builder: (context, zoom, _) {
+              final mq = MediaQuery.of(context);
+              final userScale = zoom ?? autoTextZoom(mq.size.width);
+              // Telefonun kendi yazı boyutu ayarı korunur, üstüne çarpılır.
+              final systemScale = mq.textScaler.scale(14) / 14;
+              return MediaQuery(
+                data: mq.copyWith(textScaler: TextScaler.linear((systemScale * userScale).clamp(1.0, 2.4))),
+                child: child!,
+              );
+            },
+          ),
+          home: const AppEntry(),
+>>>>
+<<<<
+            return ValueListenableBuilder<String>(
+              valueListenable: langNotifier,
+              builder: (context, _, _) => AlertDialog(
+              title: Text(t("Ayarlar", "Settings")),
+              content: Column(
+====
+            return ValueListenableBuilder<String>(
+              valueListenable: langNotifier,
+              builder: (context, _, _) => AlertDialog(
+              title: Text(t("Ayarlar", "Settings")),
+              content: SingleChildScrollView(child: Column(
+>>>>
+<<<<
+                  const Divider(height: 24),
+                  Text(t("Görünüm", "Appearance"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+====
+                  const Divider(height: 24),
+                  Text(t("Yazı Boyutu", "Text Size"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  ValueListenableBuilder<double?>(
+                    valueListenable: textZoomNotifier,
+                    builder: (context, zoom, _) => Column(
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(t("Otomatik (ekran boyutuna göre)", "Automatic (by screen size)")),
+                          value: zoom == null,
+                          onChanged: (auto) => setTextZoom(auto ? null : 1.0),
+                        ),
+                        if (zoom != null)
+                          Row(
+                            children: [
+                              const Text("A", style: TextStyle(fontSize: 12)),
+                              Expanded(
+                                child: Slider(
+                                  value: zoom,
+                                  min: minTextZoom,
+                                  max: maxTextZoom,
+                                  divisions: 6,
+                                  label: "${(zoom * 100).round()}%",
+                                  onChanged: (v) => textZoomNotifier.value = v,
+                                  onChangeEnd: setTextZoom,
+                                ),
+                              ),
+                              const Text("A", style: TextStyle(fontSize: 22)),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  Text(t("Görünüm", "Appearance"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+>>>>
+<<<<
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(t("Kapat", "Close")),
+====
+              )),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(t("Kapat", "Close")),
+>>>>
+<<<<
+                textDirection: ui.TextDirection.ltr,
+              )..layout(maxWidth: constraints.maxWidth);
+====
+                textDirection: ui.TextDirection.ltr,
+                textScaler: MediaQuery.textScalerOf(context),
+              )..layout(maxWidth: constraints.maxWidth);
+>>>>
+<<<<
+                    "$_count",
+                    style: const TextStyle(
+====
+                    "$_count",
+                    textScaler: TextScaler.noScaling,
+                    style: const TextStyle(
+>>>>

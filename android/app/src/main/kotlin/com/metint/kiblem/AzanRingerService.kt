@@ -27,6 +27,9 @@ class AzanRingerService : Service() {
         const val CHANNEL_ID = "azan_ringer"
         const val NOTIFICATION_ID = 9001
         const val EXTRA_PRAYER_NAME = "prayer_name"
+        const val EXTRA_TITLE = "notif_title"
+        const val EXTRA_BODY = "notif_body"
+        const val EXTRA_STOP_LABEL = "notif_stop_label"
         const val ACTION_STOP = "com.metint.kiblem.ACTION_STOP_AZAN"
         const val RING_DURATION_MS = 60_000L
     }
@@ -40,7 +43,10 @@ class AzanRingerService : Service() {
         }
 
         val prayerName = intent?.getStringExtra(EXTRA_PRAYER_NAME) ?: "Namaz"
-        startForeground(NOTIFICATION_ID, buildNotification(prayerName))
+        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "$prayerName Vakti"
+        val body = intent?.getStringExtra(EXTRA_BODY) ?: "Ezan vakti geldi — durdurmak için dokunun"
+        val stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Durdur"
+        startForeground(NOTIFICATION_ID, buildNotification(title, body, stopLabel))
         startRinging()
         stopHandler.removeCallbacks(stopRunnable)
         stopHandler.postDelayed(stopRunnable, RING_DURATION_MS)
@@ -106,7 +112,7 @@ class AzanRingerService : Service() {
         super.onDestroy()
     }
 
-    private fun buildNotification(prayerName: String): Notification {
+    private fun buildNotification(title: String, body: String, stopLabel: String): Notification {
         createChannelIfNeeded()
 
         val stopIntent = Intent(this, AzanRingerService::class.java).apply { action = ACTION_STOP }
@@ -123,14 +129,14 @@ class AzanRingerService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("$prayerName Vakti")
-            .setContentText("Ezan vakti geldi — durdurmak için dokunun")
+            .setContentTitle(title)
+            .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(contentPendingIntent)
-            .addAction(android.R.drawable.ic_media_pause, "Durdur", stopPendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, stopLabel, stopPendingIntent)
             .build()
     }
 

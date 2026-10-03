@@ -1,0 +1,94 @@
+<<<<
+  Widget _buildOfflineTile() {
+====
+  /// Ayet kartındaki "çevrimdışı için indir" düğmesi; indirildiyse hiç görünmez.
+  Widget _buildOfflineDownloadButton({bool onDark = false}) {
+    return ValueListenableBuilder<OfflineState>(
+      valueListenable: OfflineQuran.state,
+      builder: (context, st, _) {
+        if (kIsWeb || st == OfflineState.ready) return const SizedBox.shrink();
+        final fg = onDark ? Colors.white : Colors.green[800];
+        if (st == OfflineState.downloading) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  t("Kur'an metni indiriliyor…", "Downloading Quran text…"),
+                  style: TextStyle(fontSize: 12, color: onDark ? Colors.white : Colors.grey[700]),
+                ),
+                const SizedBox(height: 6),
+                ValueListenableBuilder<double>(
+                  valueListenable: OfflineQuran.progress,
+                  builder: (context, p, _) => LinearProgressIndicator(value: p == 0 ? null : p),
+                ),
+              ],
+            ),
+          );
+        }
+        return ValueListenableBuilder<String?>(
+          valueListenable: offlineNotice,
+          builder: (context, msg, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (msg != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    msg,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: onDark ? Colors.red[100] : Colors.red[700]),
+                  ),
+                ),
+              TextButton.icon(
+                onPressed: _startOfflineDownload,
+                style: TextButton.styleFrom(foregroundColor: fg),
+                icon: const Icon(Icons.cloud_download_outlined, size: 18),
+                label: Text(
+                  t("Çevrimdışı okumak için indir (~9 MB)", "Download for offline reading (~9 MB)"),
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOfflineTile() {
+>>>>
+<<<<
+      return Center(child: Text(t("Ayet bulunamadı.", "Verse not found."), style: const TextStyle(color: Colors.white)));
+====
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              t("Ayet bulunamadı. İnternete bağlanıp çevrimdışı metni indirebilirsin.",
+                  "Verse not found. Connect to the internet to download the offline text."),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white),
+            ),
+            _buildOfflineDownloadButton(onDark: true),
+          ],
+        ),
+      );
+>>>>
+<<<<
+                  onPressed: _nextSurah,
+                ),
+              ],
+            )
+          ],
+====
+                  onPressed: _nextSurah,
+                ),
+              ],
+            ),
+            _buildOfflineDownloadButton(),
+          ],
+>>>>

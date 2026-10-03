@@ -1,0 +1,109 @@
+<<<<
+import 'offline_quran.dart';
+====
+import 'offline_quran.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+>>>>
+<<<<
+  Future<void> _startOfflineDownload() async {
+    offlineNotice.value = null;
+    final result = await OfflineQuran.download();
+    if (!mounted) return;
+    if (result == OfflineResult.noInternet) {
+      offlineNotice.value = t(
+        "İnternet bağlantısı yok. Mobil veriyi veya Wi-Fi'ı açıp tekrar dene.",
+        "No internet connection. Turn on mobile data or Wi-Fi and try again.",
+      );
+    } else if (result == OfflineResult.failed) {
+      offlineNotice.value = t(
+        "İndirme tamamlanamadı. Bağlantını kontrol edip tekrar dene.",
+        "The download could not be completed. Check your connection and try again.",
+      );
+    }
+  }
+====
+  // Wi-Fi bağlı değilse önce uyarır; kullanıcı onaylarsa mobil veriyle de indirebilir.
+  Future<void> _requestOfflineDownload() async {
+    if (OfflineQuran.state.value != OfflineState.none) return;
+    offlineNotice.value = null;
+
+    var connections = <ConnectivityResult>[];
+    try {
+      connections = await Connectivity().checkConnectivity();
+    } catch (_) {}
+    if (!mounted) return;
+    final onWifi = connections.contains(ConnectivityResult.wifi) || connections.contains(ConnectivityResult.ethernet);
+    if (!onWifi) {
+      final noConnection = connections.isEmpty || connections.every((c) => c == ConnectivityResult.none);
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(noConnection
+              ? t("İnternet bağlantısı yok", "No internet connection")
+              : t("Wi-Fi bağlı değil", "Wi-Fi is not connected")),
+          content: Text(noConnection
+              ? t("İndirmek için mobil veriyi veya Wi-Fi'ı açman gerekiyor.", "Turn on mobile data or Wi-Fi to download.")
+              : t("Kur'an metni yaklaşık 9 MB'tır ve mobil veriyle indirilirse kotandan düşer. Yine de indirmek ister misin?",
+                  "The Quran text is about 9 MB and will use your mobile data. Download anyway?")),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(noConnection ? t("Tamam", "OK") : t("Vazgeç", "Cancel"))),
+            if (!noConnection)
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(t("Yine de indir", "Download anyway"))),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
+
+    final result = await OfflineQuran.download();
+    if (!mounted) return;
+    switch (result) {
+      case OfflineResult.ok:
+        _showSnackBar(t("Ayetler çevrimdışı kullanıma hazır.", "Verses are ready for offline use."));
+      case OfflineResult.noInternet:
+        offlineNotice.value = t(
+          "İnternet bağlantısı yok. Mobil veriyi veya Wi-Fi'ı açıp tekrar dene.",
+          "No internet connection. Turn on mobile data or Wi-Fi and try again.",
+        );
+        _showSnackBar(offlineNotice.value!);
+      case OfflineResult.failed:
+        offlineNotice.value = t(
+          "İndirme tamamlanamadı. Bağlantını kontrol edip tekrar dene.",
+          "The download could not be completed. Check your connection and try again.",
+        );
+        _showSnackBar(offlineNotice.value!);
+    }
+  }
+>>>>
+<<<<
+            onTap: _startOfflineDownload,
+====
+            onTap: _requestOfflineDownload,
+>>>>
+<<<<
+    Future.delayed(const Duration(seconds: 5), _maybeOfferOfflineDownload);
+====
+>>>>
+<<<<
+            _buildOfflineDownloadButton(onDark: true),
+====
+            _buildOfflineDownloadIcon(onDark: true),
+>>>>
+<<<<
+            ),
+            _buildOfflineDownloadButton(),
+          ],
+====
+            ),
+          ],
+>>>>
+<<<<
+                Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+====
+                Row(
+                  children: [
+                    Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                    _buildOfflineDownloadIcon(),
+                  ],
+                ),
+>>>>

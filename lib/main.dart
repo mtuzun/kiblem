@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:ui' as ui;
-import 'dart:math' show pi, cos, sin;
+import 'dart:math' show pi, cos, sin, Random;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show MethodChannel;
@@ -23,6 +23,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:home_widget/home_widget.dart';
 
 import 'city_data.dart';
+import 'hadith_data.dart';
+import 'l10n.dart';
+import 'offline_quran.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'text_zoom.dart';
 import 'onboarding_screen.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -32,6 +37,10 @@ const MethodChannel ringtoneChannel = MethodChannel('com.metint.kiblem/ringtone'
 final GlobalKey qiblaButtonKey = GlobalKey();
 final GlobalKey prayerListKey = GlobalKey();
 final GlobalKey dailyAyahKey = GlobalKey();
+final GlobalKey dailyHadithKey = GlobalKey();
+final GlobalKey dailyTabsKey = GlobalKey();
+// Dar ekranda açık sekme: 0 = Günün Ayeti, 1 = Günün Hadisi.
+final ValueNotifier<int> dailyTabNotifier = ValueNotifier<int>(1);
 final GlobalKey zikirButtonKey = GlobalKey();
 final GlobalKey settingsButtonKey = GlobalKey();
 final ValueNotifier<bool> showCoachMarks = ValueNotifier<bool>(false);
@@ -45,13 +54,21 @@ Future<void> setThemeMode(ThemeMode mode) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  MobileAds.instance.initialize();
+  // Reklamlar şimdilik yalnızca Android'de; iOS için AdMob uygulaması açılınca eklenecek.
+  if (!kIsWeb && Platform.isAndroid) {
+    MobileAds.instance.initialize();
+  }
 
   tz_data.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
   await flutterLocalNotificationsPlugin.initialize(
     settings: const InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestSoundPermission: false,
+        requestBadgePermission: false,
+      ),
     ),
   );
 
@@ -60,6 +77,9 @@ void main() async {
     (m) => m.name == prefs.getString('theme_mode'),
     orElse: () => ThemeMode.system,
   );
+  await loadSavedLanguage();
+  await loadSavedTextZoom();
+  unawaited(OfflineQuran.init());
 
   runApp(const MyApp());
 }
@@ -86,6 +106,19 @@ class MyApp extends StatelessWidget {
             brightness: Brightness.dark,
             colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.dark),
             fontFamily: 'Montserrat',
+          ),
+          builder: (context, child) => ValueListenableBuilder<double?>(
+            valueListenable: textZoomNotifier,
+            builder: (context, zoom, _) {
+              final mq = MediaQuery.of(context);
+              final userScale = zoom ?? autoTextZoom(mq.size.width);
+              // Telefonun kendi yazı boyutu ayarı korunur, üstüne çarpılır.
+              final systemScale = mq.textScaler.scale(14) / 14;
+              return MediaQuery(
+                data: mq.copyWith(textScaler: TextScaler.linear((systemScale * userScale).clamp(1.0, 2.4))),
+                child: child!,
+              );
+            },
           ),
           home: const AppEntry(),
         );
@@ -118,6 +151,7 @@ class _AppEntryState extends State<AppEntry> {
 
   Future<void> _finishCoachMarks() async {
     showCoachMarks.value = false;
+    dailyTabNotifier.value = 1;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('has_seen_onboarding', true);
   }
@@ -174,6 +208,181 @@ class _MainScreenState extends State<MainScreen> {
   String? azanSoundTitle;
   String? _lastWidgetKey;
 
+  int get _dailyTab => dailyTabNotifier.value;
+  set _dailyTab(int v) => dailyTabNotifier.value = v;
+
+  void _onDailyTabChanged() {
+    if (mounted) setState(() {});
+  }
+
+  final ValueNotifier<String?> audioNotice = ValueNotifier(null);
+  Timer? _audioNoticeTimer;
+
+  void _showAudioNotice() {
+    audioNotice.value = t(
+      "Sesli okunuş için internet gerekiyor. Lütfen mobil veriyi veya Wi-Fi'ı aç.",
+      "Audio recitation needs an internet connection. Please turn on mobile data or Wi-Fi.",
+    );
+    _audioNoticeTimer?.cancel();
+    _audioNoticeTimer = Timer(const Duration(seconds: 6), () => audioNotice.value = null);
+  }
+
+  final ValueNotifier<String?> offlineNotice = ValueNotifier(null);
+
+  // Wi-Fi bağlı değilse önce uyarır; kullanıcı onaylarsa mobil veriyle de indirebilir.
+  Future<void> _requestOfflineDownload() async {
+    if (OfflineQuran.state.value != OfflineState.none) return;
+    offlineNotice.value = null;
+
+    var connections = <ConnectivityResult>[];
+    try {
+      connections = await Connectivity().checkConnectivity();
+    } catch (_) {}
+    if (!mounted) return;
+    final onWifi = connections.contains(ConnectivityResult.wifi) || connections.contains(ConnectivityResult.ethernet);
+    if (!onWifi) {
+      final noConnection = connections.isEmpty || connections.every((c) => c == ConnectivityResult.none);
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(noConnection
+              ? t("İnternet bağlantısı yok", "No internet connection")
+              : t("Wi-Fi bağlı değil", "Wi-Fi is not connected")),
+          content: Text(noConnection
+              ? t("İndirmek için mobil veriyi veya Wi-Fi'ı açman gerekiyor.", "Turn on mobile data or Wi-Fi to download.")
+              : t("Kur'an metni yaklaşık 9 MB'tır ve mobil veriyle indirilirse kotandan düşer. Yine de indirmek ister misin?",
+                  "The Quran text is about 9 MB and will use your mobile data. Download anyway?")),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(noConnection ? t("Tamam", "OK") : t("Vazgeç", "Cancel"))),
+            if (!noConnection)
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(t("Yine de indir", "Download anyway"))),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
+
+    final result = await OfflineQuran.download();
+    if (!mounted) return;
+    switch (result) {
+      case OfflineResult.ok:
+        _showSnackBar(t("Ayetler çevrimdışı kullanıma hazır.", "Verses are ready for offline use."));
+      case OfflineResult.noInternet:
+        offlineNotice.value = t(
+          "İnternet bağlantısı yok. Mobil veriyi veya Wi-Fi'ı açıp tekrar dene.",
+          "No internet connection. Turn on mobile data or Wi-Fi and try again.",
+        );
+        _showSnackBar(offlineNotice.value!);
+      case OfflineResult.failed:
+        offlineNotice.value = t(
+          "İndirme tamamlanamadı. Bağlantını kontrol edip tekrar dene.",
+          "The download could not be completed. Check your connection and try again.",
+        );
+        _showSnackBar(offlineNotice.value!);
+    }
+  }
+
+  /// Ayet kartındaki küçük "indir" simgesi; indirildiyse hiç görünmez.
+  Widget _buildOfflineDownloadIcon({bool onDark = false}) {
+    return ValueListenableBuilder<OfflineState>(
+      valueListenable: OfflineQuran.state,
+      builder: (context, st, _) {
+        if (kIsWeb || st == OfflineState.ready) return const SizedBox.shrink();
+        if (st == OfflineState.downloading) {
+          return ValueListenableBuilder<double>(
+            valueListenable: OfflineQuran.progress,
+            builder: (context, p, _) => Padding(
+              padding: const EdgeInsets.only(left: 10),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: p == 0 ? null : p,
+                  color: onDark ? Colors.white : Colors.green,
+                ),
+              ),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 10),
+          child: IconButton(
+            icon: Icon(Icons.download, size: 20, color: onDark ? Colors.white : Colors.grey),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: t("Çevrimdışı okumak için indir (~9 MB)", "Download for offline reading (~9 MB)"),
+            onPressed: _requestOfflineDownload,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOfflineTile() {
+    return ValueListenableBuilder<OfflineState>(
+      valueListenable: OfflineQuran.state,
+      builder: (context, st, _) {
+        if (st == OfflineState.downloading) {
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cloud_download_outlined),
+            title: Text(t("Kur'an metni indiriliyor…", "Downloading Quran text…")),
+            subtitle: ValueListenableBuilder<double>(
+              valueListenable: OfflineQuran.progress,
+              builder: (context, p, _) => Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(value: p == 0 ? null : p),
+              ),
+            ),
+          );
+        }
+        if (st == OfflineState.ready) {
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.offline_pin, color: Colors.green),
+            title: Text(t("Çevrimdışı Kur'an Metni", "Offline Quran Text")),
+            subtitle: Text(t(
+              "İndirildi: tüm ayetler internetsiz okunabilir. (Sesli okunuş internet ister.)",
+              "Downloaded: all verses can be read without internet. (Audio recitation needs internet.)",
+            )),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: t("Sil", "Delete"),
+              onPressed: OfflineQuran.delete,
+            ),
+          );
+        }
+        return ValueListenableBuilder<String?>(
+          valueListenable: offlineNotice,
+          builder: (context, msg, _) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cloud_download_outlined),
+            title: Text(t("Çevrimdışı Kur'an Metni", "Offline Quran Text")),
+            subtitle: Text(
+              msg ??
+                  t(
+                    "Tüm ayetleri internetsiz okumak için indir (~9 MB indirme, ~5 MB yer). Wi-Fi önerilir.",
+                    "Download all verses to read without internet (~9 MB download, ~5 MB storage). Wi-Fi recommended.",
+                  ),
+              style: msg == null ? null : TextStyle(color: Colors.red[700]),
+            ),
+            onTap: _requestOfflineDownload,
+          ),
+        );
+      },
+    );
+  }
+
+  void _onLangChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _updateTimeLeft();
+    if (azanReminderEnabled) _scheduleAzanReminders();
+  }
+
+  int? _hadithIndex;
+
   final List<String> _cities = [
     'Adana', 'Adıyaman', 'Afyonkarahisar', 'Ağrı', 'Amasya', 'Ankara', 'Antalya', 'Artvin', 'Aydın', 'Balıkesir', 
     'Bilecik', 'Bingöl', 'Bitlis', 'Bolu', 'Burdur', 'Bursa', 'Çanakkale', 'Çankırı', 'Çorum', 'Denizli', 'Diyarbakır', 
@@ -188,8 +397,11 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    dailyTabNotifier.addListener(_onDailyTabChanged);
+    langNotifier.addListener(_onLangChanged);
     _cities.sort();
     _loadSavedCity();
+    _loadDailyHadith();
     _initAyah();
     
     audioPlayer = AudioPlayer();
@@ -223,6 +435,9 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    _audioNoticeTimer?.cancel();
+    dailyTabNotifier.removeListener(_onDailyTabChanged);
+    langNotifier.removeListener(_onLangChanged);
     timer?.cancel();
     audioPlayer?.dispose();
     _bannerAd?.dispose();
@@ -230,6 +445,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _loadBannerAd() {
+    if (kIsWeb || !Platform.isAndroid) return;
     _bannerAd = BannerAd(
       adUnitId: 'ca-app-pub-9864338488985680/1217505985',
       size: AdSize.banner,
@@ -251,7 +467,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _checkForUpdate() async {
-    if (kIsWeb) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
       final info = await InAppUpdate.checkForUpdate();
       if (info.updateAvailability == UpdateAvailability.updateAvailable) {
@@ -261,9 +477,9 @@ class _MainScreenState extends State<MainScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               duration: const Duration(days: 1),
-              content: const Text("Yeni bir sürüm indirildi."),
+              content: Text(t("Yeni bir sürüm indirildi.", "A new version has been downloaded.")),
               action: SnackBarAction(
-                label: "GÜNCELLE",
+                label: t("GÜNCELLE", "UPDATE"),
                 onPressed: () => InAppUpdate.completeFlexibleUpdate(),
               ),
             ),
@@ -356,6 +572,21 @@ class _MainScreenState extends State<MainScreen> {
       audioPlayer?.stop();
     }
     
+    await OfflineQuran.initFuture;
+    final offlineAyah = OfflineQuran.getAyah(ayahNumber);
+    if (offlineAyah != null) {
+      if (!mounted) return;
+      setState(() {
+        dailyAyahData = offlineAyah;
+        dailyAyahNotifier.value = offlineAyah;
+        isLoadingAyah = false;
+      });
+      if (isAutoPlaying) {
+        _playOnlyAudio();
+      }
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final cacheKey = "ayah_cache_uthmani_audio_en_$ayahNumber";
     
@@ -410,6 +641,11 @@ class _MainScreenState extends State<MainScreen> {
     if (audioPlayer == null || dailyAyahData == null) return;
     final audioUrl = dailyAyahData!['audioUrl'];
     if (audioUrl != null) {
+      if (!await hasInternet()) {
+        isAutoPlaying = false;
+        _showAudioNotice();
+        return;
+      }
       await audioPlayer!.play(UrlSource(audioUrl));
     }
   }
@@ -496,6 +732,10 @@ class _MainScreenState extends State<MainScreen> {
       isAutoPlaying = false;
       await audioPlayer!.stop();
     } else {
+      if (!await hasInternet()) {
+        _showAudioNotice();
+        return;
+      }
       isAutoPlaying = true;
       try {
         await audioPlayer!.play(UrlSource(audioUrl));
@@ -516,7 +756,7 @@ class _MainScreenState extends State<MainScreen> {
 
       serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        _showSnackBar("Konum servisleri kapalı.");
+        _showSnackBar(t("Konum servisleri kapalı.", "Location services are turned off."));
         setState(() => isLocating = false);
         return;
       }
@@ -525,24 +765,37 @@ class _MainScreenState extends State<MainScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          _showSnackBar("Konum izni reddedildi.");
+          _showSnackBar(t("Konum izni reddedildi.", "Location permission was denied."));
           setState(() => isLocating = false);
           return;
         }
       }
       
       if (permission == LocationPermission.deniedForever) {
-        _showSnackBar("Konum izni kalıcı olarak reddedildi.");
+        _showSnackBar(t("Konum izni kalıcı olarak reddedildi.", "Location permission was permanently denied."));
         setState(() => isLocating = false);
         return;
       } 
 
-      Position position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium));
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 20),
+        ),
+      );
       
-      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        String foundCity = place.administrativeArea ?? place.locality ?? "İstanbul";
+      // Şehir adını bulmak internet ister; yoksa koordinata en yakın şehre düşülür.
+      List<Placemark> placemarks = [];
+      try {
+        placemarks = await placemarkFromCoordinates(position.latitude, position.longitude)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {}
+      final geocoded = placemarks.isNotEmpty;
+      {
+        final place = geocoded ? placemarks[0] : null;
+        String foundCity = place == null
+            ? _nearestCity(position.latitude, position.longitude)
+            : (place.administrativeArea ?? place.locality ?? "İstanbul");
         
         // Clean up "Province" word from English locale responses e.g. "Istanbul Province"
         if (foundCity.toLowerCase().contains("province")) {
@@ -562,15 +815,40 @@ class _MainScreenState extends State<MainScreen> {
 
         await _saveCity(matchedCity);
         _calculatePrayerTimes(activeCoordinates!);
-        _showSnackBar("$matchedCity konumu bulundu.");
+        _showSnackBar(geocoded
+            ? t("$matchedCity konumu bulundu.", "Location found: $matchedCity.")
+            : t(
+                "İnternet yok: konumuna en yakın şehir seçildi ($matchedCity). Daha doğru sonuç için mobil veriyi veya Wi-Fi'ı aç.",
+                "No internet: the nearest city was selected ($matchedCity). Turn on mobile data or Wi-Fi for a more accurate result.",
+              ));
       }
     } catch (e) {
-      _showSnackBar("Konum alınırken hata oluştu.");
+      _showSnackBar(e is TimeoutException
+          ? t(
+              "Konum alınamadı. Açık bir alana çıkıp konum servisinin açık olduğundan emin ol.",
+              "Could not get a location fix. Move to an open area and make sure location services are on.",
+            )
+          : t("Konum alınırken hata oluştu.", "Could not get your location."));
     } finally {
       setState(() {
         isLocating = false;
       });
     }
+  }
+
+  String _nearestCity(double lat, double lon) {
+    var best = "İstanbul";
+    var bestDistance = double.infinity;
+    for (final city in _cities) {
+      final c = cityCoordinates[city];
+      if (c == null) continue;
+      final d = Geolocator.distanceBetween(lat, lon, c[0], c[1]);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = city;
+      }
+    }
+    return best;
   }
 
   void _showSnackBar(String message) {
@@ -606,14 +884,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _pickAzanSound() async {
-    if (kIsWeb) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final currentUri = prefs.getString('azan_sound_uri');
 
       final pickedUri = await ringtoneChannel.invokeMethod<String>(
         'pickRingtone',
-        {'currentUri': currentUri},
+        {'currentUri': currentUri, 'title': t('Ezan Sesi Seç', 'Choose Azan Sound')},
       );
       if (pickedUri == null) return;
 
@@ -621,7 +899,7 @@ class _MainScreenState extends State<MainScreen> {
             'getRingtoneTitle',
             {'uri': pickedUri},
           ) ??
-          'Özel Ses';
+          t('Özel Ses', 'Custom sound');
 
       await ringtoneChannel.invokeMethod('setChannelSound', {'uri': pickedUri});
       await prefs.setString('azan_sound_uri', pickedUri);
@@ -649,27 +927,40 @@ class _MainScreenState extends State<MainScreen> {
               AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
 
+      if (_isIos) {
+        final iosPlugin = flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+        final granted = await iosPlugin?.requestPermissions(alert: true, sound: true);
+        if (granted == false && mounted) {
+          _showSnackBar(t(
+            "Bildirim izni verilmedi. Hatırlatıcı için Ayarlar'dan bildirimlere izin ver.",
+            "Notification permission was not granted. Allow notifications in Settings for the reminder.",
+          ));
+        }
+      }
+
       if (!kIsWeb && Platform.isAndroid) {
         final canScheduleExact = await ringtoneChannel.invokeMethod<bool>('canScheduleExactAlarms') ?? true;
         if (!canScheduleExact && mounted) {
           await showDialog(
             context: context,
             builder: (context) => AlertDialog(
-              title: const Text('İzin Gerekli'),
-              content: const Text(
+              title: Text(t('İzin Gerekli', 'Permission Required')),
+              content: Text(t(
                 'Ezan hatırlatıcısının tam zamanında çalabilmesi için "Alarmlar ve Hatırlatıcılar" iznini açman gerekiyor. Açılan ayarlar ekranından bu uygulamaya izin ver.',
-              ),
+                'To ring exactly on time, the azan reminder needs the "Alarms & reminders" permission. Please allow it for this app in the settings screen that opens.',
+              )),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Vazgeç'),
+                  child: Text(t('Vazgeç', 'Cancel')),
                 ),
                 FilledButton(
                   onPressed: () {
                     Navigator.pop(context);
                     ringtoneChannel.invokeMethod('requestExactAlarmPermission');
                   },
-                  child: const Text('Ayarları Aç'),
+                  child: Text(t('Ayarları Aç', 'Open Settings')),
                 ),
               ],
             ),
@@ -685,6 +976,10 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _scheduleAzanReminders() async {
     if (prayerTimes == null) return;
+    if (_isIos) {
+      await _scheduleIosReminders();
+      return;
+    }
     await _cancelAzanReminders();
 
     final prayers = <int, DateTime>{
@@ -704,6 +999,12 @@ class _MainScreenState extends State<MainScreen> {
         'id': entry.key,
         'triggerAtMillis': reminderTime.millisecondsSinceEpoch,
         'prayerName': prayerName,
+        'title': t("$prayerName Vakti", "$prayerName time"),
+        'body': t(
+          "Ezan vakti geldi — durdurmak için dokunun",
+          "It's time for the call to prayer — tap to stop",
+        ),
+        'stopLabel': t("Durdur", "Stop"),
       });
     }
   }
@@ -729,7 +1030,66 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  bool get _isIos => !kIsWeb && Platform.isIOS;
+
+  Rect _shareOrigin() {
+    final s = MediaQuery.sizeOf(context);
+    return Rect.fromCenter(center: Offset(s.width / 2, s.height / 2), width: 1, height: 1);
+  }
+
+  // iOS'ta uygulama kapalıyken telefon gibi çalan alarm kurulamaz; bunun yerine ezandan
+  // önce sesli bildirim gönderilir. Uygulama açılmasa da sürsün diye 7 gün önceden kurulur.
+  Future<void> _scheduleIosReminders() async {
+    final coords = activeCoordinates;
+    if (coords == null) return;
+    await _cancelAzanReminders();
+
+    final params = CalculationMethod.turkey.getParameters();
+    params.madhab = Madhab.hanafi;
+    final now = DateTime.now();
+    var id = 0;
+    for (var day = 0; day < 7; day++) {
+      final date = now.add(Duration(days: day));
+      final times = PrayerTimes(coords, DateComponents(date.year, date.month, date.day), params);
+      final prayers = <Prayer, DateTime>{
+        Prayer.fajr: times.fajr,
+        Prayer.dhuhr: times.dhuhr,
+        Prayer.asr: times.asr,
+        Prayer.maghrib: times.maghrib,
+        Prayer.isha: times.isha,
+      };
+      for (final entry in prayers.entries) {
+        final at = entry.value.subtract(Duration(minutes: azanReminderMinutes));
+        if (at.isBefore(now)) continue;
+        final name = _getPrayerName(entry.key);
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id: id++,
+          scheduledDate: tz.TZDateTime.from(at, tz.local),
+          notificationDetails: const NotificationDetails(
+            iOS: DarwinNotificationDetails(
+              presentAlert: true,
+              presentSound: true,
+              presentBanner: true,
+              presentList: true,
+            ),
+          ),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          title: t("$name vakti yaklaşıyor", "$name time is approaching"),
+          body: t(
+            "Namaz vaktine $azanReminderMinutes dakika kaldı.",
+            "$azanReminderMinutes minutes until prayer time.",
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _cancelAzanReminders() async {
+    if (kIsWeb) return;
+    if (_isIos) {
+      await flutterLocalNotificationsPlugin.cancelAll();
+      return;
+    }
     for (int id = 0; id < 5; id++) {
       await ringtoneChannel.invokeMethod('cancelAzanAlarm', {'id': id});
     }
@@ -742,16 +1102,20 @@ class _MainScreenState extends State<MainScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text("Ayarlar"),
-              content: Column(
+            return ValueListenableBuilder<String>(
+              valueListenable: langNotifier,
+              builder: (context, _, _) => AlertDialog(
+              title: Text(t("Ayarlar", "Settings")),
+              content: SingleChildScrollView(child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text("Ezan Hatırlatıcısı"),
-                    subtitle: Text("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır."),
+                    title: Text(t("Ezan Hatırlatıcısı", "Azan Reminder")),
+                    subtitle: Text(_isIos
+                        ? t("Namaz vaktine $azanReminderMinutes dakika kala sesli bildirim gönder.", "Send a notification with sound $azanReminderMinutes minutes before prayer time.")
+                        : t("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır.", "Ring the phone $azanReminderMinutes minutes before prayer time.")),
                     value: azanReminderEnabled,
                     onChanged: (value) async {
                       await _setAzanReminderEnabled(value);
@@ -767,7 +1131,9 @@ class _MainScreenState extends State<MainScreen> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              "Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.",
+                              _isIos
+                                  ? t("Ezana $azanReminderMinutes dakika kala sesli bildirim gelecektir.", "You will get a notification with sound $azanReminderMinutes minutes before prayer time.")
+                                  : t("Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.", "$azanReminderMinutes minutes before prayer time, your phone will ring like an alarm for 1 minute (until you stop it)."),
                               style: TextStyle(color: Colors.green[700], fontSize: 13),
                             ),
                           ),
@@ -778,14 +1144,14 @@ class _MainScreenState extends State<MainScreen> {
                       padding: const EdgeInsets.only(top: 4.0),
                       child: Row(
                         children: [
-                          const Text("Süre:", style: TextStyle(fontSize: 13)),
+                          Text(t("Süre:", "Time:"), style: const TextStyle(fontSize: 13)),
                           Expanded(
                             child: Slider(
                               value: azanReminderMinutes.toDouble(),
                               min: 1,
                               max: 15,
                               divisions: 14,
-                              label: "$azanReminderMinutes dk",
+                              label: t("$azanReminderMinutes dk", "$azanReminderMinutes min"),
                               onChanged: (value) {
                                 setDialogState(() {
                                   azanReminderMinutes = value.round();
@@ -795,20 +1161,21 @@ class _MainScreenState extends State<MainScreen> {
                             ),
                           ),
                           SizedBox(
-                            width: 40,
-                            child: Text("$azanReminderMinutes dk", style: const TextStyle(fontSize: 13)),
+                            width: 52,
+                            child: Text(t("$azanReminderMinutes dk", "$azanReminderMinutes min"), style: const TextStyle(fontSize: 13)),
                           ),
                         ],
                       ),
                     ),
+                    if (!_isIos)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.music_note_outlined),
-                      title: const Text("Ezan Sesini Seç"),
+                      title: Text(t("Ezan Sesini Seç", "Choose Azan Sound")),
                       subtitle: Text(
                         azanSoundTitle != null
-                            ? "Seçili ses: $azanSoundTitle"
-                            : "Sadece bu hatırlatıcı için bir ses seç (telefonunun zil/bildirim sesini değiştirmez).",
+                            ? t("Seçili ses: $azanSoundTitle", "Selected sound: $azanSoundTitle")
+                            : t("Sadece bu hatırlatıcı için bir ses seç (telefonunun zil/bildirim sesini değiştirmez).", "Pick a sound just for this reminder (your phone's ringtone is not changed)."),
                       ),
                       onTap: () async {
                         await _pickAzanSound();
@@ -817,16 +1184,63 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                   ],
                   const Divider(height: 24),
-                  const Text("Görünüm", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text(t("Dil", "Language"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(value: 'tr', label: Text("Türkçe")),
+                      ButtonSegment(value: 'en', label: Text("English")),
+                    ],
+                    selected: {langNotifier.value},
+                    onSelectionChanged: (selected) => setLanguage(selected.first),
+                  ),
+                  const Divider(height: 24),
+                  Text(t("Yazı Boyutu", "Text Size"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  ValueListenableBuilder<double?>(
+                    valueListenable: textZoomNotifier,
+                    builder: (context, zoom, _) => Column(
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(t("Otomatik (ekran boyutuna göre)", "Automatic (by screen size)")),
+                          value: zoom == null,
+                          onChanged: (auto) => setTextZoom(auto ? null : 1.0),
+                        ),
+                        if (zoom != null)
+                          Row(
+                            children: [
+                              const Text("A", style: TextStyle(fontSize: 12)),
+                              Expanded(
+                                child: Slider(
+                                  value: zoom,
+                                  min: minTextZoom,
+                                  max: maxTextZoom,
+                                  divisions: 6,
+                                  label: "${(zoom * 100).round()}%",
+                                  onChanged: (v) => textZoomNotifier.value = v,
+                                  onChangeEnd: setTextZoom,
+                                ),
+                              ),
+                              const Text("A", style: TextStyle(fontSize: 22)),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  Text(t("Görünüm", "Appearance"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                   const SizedBox(height: 8),
                   ValueListenableBuilder<ThemeMode>(
                     valueListenable: themeModeNotifier,
                     builder: (context, mode, _) {
                       return SegmentedButton<ThemeMode>(
-                        segments: const [
-                          ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode), label: Text("Açık")),
-                          ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode), label: Text("Koyu")),
-                          ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.settings_suggest), label: Text("Sistem")),
+                        showSelectedIcon: false,
+                        segments: [
+                          ButtonSegment(value: ThemeMode.light, label: Text(t("Açık", "Light"))),
+                          ButtonSegment(value: ThemeMode.dark, label: Text(t("Koyu", "Dark"))),
+                          ButtonSegment(value: ThemeMode.system, label: Text(t("Sistem", "System"))),
                         ],
                         selected: {mode},
                         onSelectionChanged: (selected) => setThemeMode(selected.first),
@@ -834,23 +1248,26 @@ class _MainScreenState extends State<MainScreen> {
                     },
                   ),
                   const Divider(height: 24),
+                  _buildOfflineTile(),
+                  const Divider(height: 24),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.play_circle_outline),
-                    title: const Text("Uygulama Tanıtımını Göster"),
+                    title: Text(t("Uygulama Tanıtımını Göster", "Show App Tour")),
                     onTap: () {
                       Navigator.pop(context);
                       showCoachMarks.value = true;
                     },
                   ),
                 ],
-              ),
+              )),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("Kapat"),
+                  child: Text(t("Kapat", "Close")),
                 ),
               ],
+            ),
             );
           },
         );
@@ -895,12 +1312,17 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _updateHomeWidget(String prayerName, DateTime prayerTime) async {
-    if (kIsWeb) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
       final timeStr =
           "${prayerTime.hour.toString().padLeft(2, '0')}:${prayerTime.minute.toString().padLeft(2, '0')}";
       await HomeWidget.saveWidgetData<String>('widget_city', currentCity);
       await HomeWidget.saveWidgetData<String>('widget_prayer_name', prayerName);
+      final cityUpper = currentCity.replaceAll('i', 'İ').replaceAll('ı', 'I').toUpperCase();
+      await HomeWidget.saveWidgetData<String>(
+        'widget_label',
+        t("SONRAKİ VAKİT • $cityUpper", "NEXT PRAYER • $cityUpper"),
+      );
       await HomeWidget.saveWidgetData<String>('widget_prayer_time', timeStr);
       await HomeWidget.updateWidget(androidName: 'PrayerWidgetProvider');
     } catch (e) {
@@ -910,12 +1332,12 @@ class _MainScreenState extends State<MainScreen> {
 
   String _getPrayerName(Prayer prayer) {
     switch (prayer) {
-      case Prayer.fajr: return "İmsak";
-      case Prayer.sunrise: return "Güneş";
-      case Prayer.dhuhr: return "Öğle";
-      case Prayer.asr: return "İkindi";
-      case Prayer.maghrib: return "Akşam";
-      case Prayer.isha: return "Yatsı";
+      case Prayer.fajr: return t("İmsak", "Fajr");
+      case Prayer.sunrise: return t("Güneş", "Sunrise");
+      case Prayer.dhuhr: return t("Öğle", "Dhuhr");
+      case Prayer.asr: return t("İkindi", "Asr");
+      case Prayer.maghrib: return t("Akşam", "Maghrib");
+      case Prayer.isha: return t("Yatsı", "Isha");
       case Prayer.none: return "";
     }
   }
@@ -938,14 +1360,47 @@ class _MainScreenState extends State<MainScreen> {
               _buildHeader(),
               const SizedBox(height: 10),
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      KeyedSubtree(key: prayerListKey, child: _buildPrayerList()),
-                      KeyedSubtree(key: dailyAyahKey, child: _buildDailyAyah()),
-                      const SizedBox(height: 20),
-                    ],
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth >= 900) {
+                      return SingleChildScrollView(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 5,
+                              child: Column(
+                                children: [
+                                  KeyedSubtree(key: prayerListKey, child: _buildPrayerList()),
+                                  const SizedBox(height: 6),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                                    child: KeyedSubtree(key: dailyHadithKey, child: _buildDailyHadith()),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              flex: 6,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 20, bottom: 20),
+                                child: KeyedSubtree(key: dailyAyahKey, child: _buildDailyAyah()),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    return SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          KeyedSubtree(key: prayerListKey, child: _buildPrayerList()),
+                          KeyedSubtree(key: dailyTabsKey, child: _buildDailyTabs()),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
               if (_isBannerAdLoaded && _bannerAd != null)
@@ -1018,17 +1473,17 @@ class _MainScreenState extends State<MainScreen> {
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Icon(Icons.my_location, color: Colors.white),
                     onPressed: isLocating ? null : _findLocationInBackground,
-                    tooltip: "Mevcut Konumu Bul",
+                    tooltip: t("Mevcut Konumu Bul", "Find My Location"),
                   ),
                   IconButton(
                     key: qiblaButtonKey,
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.explore, color: Colors.white),
-                    tooltip: "Kıble Yönü",
+                    tooltip: t("Kıble Yönü", "Qibla Direction"),
                     onPressed: () {
                       if (kIsWeb) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.')),
+                          SnackBar(content: Text(t('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.', 'The qibla compass is not supported in web browsers. Please try it on mobile.'))),
                         );
                         return;
                       }
@@ -1039,7 +1494,7 @@ class _MainScreenState extends State<MainScreen> {
                     key: zikirButtonKey,
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.timer, color: Colors.white),
-                    tooltip: "Zikirmatik / Sayaç",
+                    tooltip: t("Zikirmatik / Sayaç", "Dhikr Counter"),
                     onPressed: () {
                       showDialog(
                         context: context,
@@ -1051,7 +1506,7 @@ class _MainScreenState extends State<MainScreen> {
                     key: settingsButtonKey,
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.settings, color: Colors.white),
-                    tooltip: "Ayarlar",
+                    tooltip: t("Ayarlar", "Settings"),
                     onPressed: _showSettingsDialog,
                   ),
                 ],
@@ -1065,7 +1520,7 @@ class _MainScreenState extends State<MainScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "$nextPrayerName vaktine kalan süre",
+                        t("$nextPrayerName vaktine kalan süre", "Time until $nextPrayerName"),
                         style: const TextStyle(color: Colors.white, fontSize: 16),
                       ),
                       const SizedBox(height: 5),
@@ -1091,8 +1546,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildClockNode() {
     final now = DateTime.now();
-    const ayIsimleri = ["", "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-    final dateStr = "${now.day.toString().padLeft(2, '0')} ${ayIsimleri[now.month]} ${now.year}";
+    final dateStr = "${now.day.toString().padLeft(2, '0')} ${shortMonth(now.month)} ${now.year}";
     final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
 
     return Column(
@@ -1105,13 +1559,30 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  String _ayahRef(Map<String, dynamic> data) =>
+      t("${data['surah']}, ${data['numberInSurah']}. Ayet", "${data['surah']}, Verse ${data['numberInSurah']}");
+
   Widget _buildDailyAyah() {
     if (isLoadingAyah) {
       return const Center(child: CircularProgressIndicator(color: Colors.white));
     }
 
     if (dailyAyahData == null) {
-      return const Center(child: Text("Ayet bulunamadı.", style: TextStyle(color: Colors.white)));
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              t("Ayet bulunamadı. İnternete bağlanıp çevrimdışı metni indirebilirsin.",
+                  "Verse not found. Connect to the internet to download the offline text."),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white),
+            ),
+            _buildOfflineDownloadIcon(onDark: true),
+          ],
+        ),
+      );
     }
 
     final isLastAyah = displayedAyahNumber == 6236;
@@ -1131,7 +1602,12 @@ class _MainScreenState extends State<MainScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Ayet-i Kerime", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                Row(
+                  children: [
+                    Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                    _buildOfflineDownloadIcon(),
+                  ],
+                ),
                 Row(
                   children: [
                     IconButton(
@@ -1141,7 +1617,7 @@ class _MainScreenState extends State<MainScreen> {
                       onPressed: _prevAyah,
                     ),
                     const SizedBox(width: 5),
-                    Text("${dailyAyahData!['surah']}, ${dailyAyahData!['numberInSurah']}. Ayet", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     const SizedBox(width: 5),
                     IconButton(
                       icon: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
@@ -1159,30 +1635,33 @@ class _MainScreenState extends State<MainScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 20, fontFamily: 'Amiri', fontWeight: FontWeight.bold, color: Colors.black87),
             ),
+            if (!isEnglish) ...[
+              const SizedBox(height: 8),
+              Text(
+                dailyAyahData!['transliteration'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.green[800], fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+              ),
+              const Divider(height: 16),
+              const Text("Diyanet İşleri Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 4),
+              Text(
+                dailyAyahData!['turkish1'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              ),
+              const SizedBox(height: 8),
+              const Text("Elmalılı Hamdi Yazır Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 4),
+              Text(
+                dailyAyahData!['turkish2'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              ),
+            ] else
+              const Divider(height: 16),
             const SizedBox(height: 8),
-            Text(
-              dailyAyahData!['transliteration'] ?? '',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.green[800], fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
-            ),
-            const Divider(height: 16),
-            const Text("Diyanet İşleri Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
-            const SizedBox(height: 4),
-            Text(
-              dailyAyahData!['turkish1'] ?? '',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[800]),
-            ),
-            const SizedBox(height: 8),
-            const Text("Elmalılı Hamdi Yazır Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
-            const SizedBox(height: 4),
-            Text(
-              dailyAyahData!['turkish2'] ?? '',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[800]),
-            ),
-            const SizedBox(height: 8),
-            const Text("English Translation (Sahih Int.):", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+            Text(t("English Translation (Sahih Int.):", "Translation (Sahih International):"), textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 4),
             Text(
               dailyAyahData!['english'] ?? '',
@@ -1201,7 +1680,7 @@ class _MainScreenState extends State<MainScreen> {
                   onPressed: _prevSurah,
                 ),
                 const SizedBox(width: 15),
-                const Text("Sure Değiştir", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                Text(t("Sure Değiştir", "Change Surah"), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
                 const SizedBox(width: 15),
                 IconButton(
                   icon: const Icon(Icons.keyboard_double_arrow_right, size: 22, color: Colors.grey),
@@ -1210,9 +1689,210 @@ class _MainScreenState extends State<MainScreen> {
                   onPressed: _nextSurah,
                 ),
               ],
-            )
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDailyTabs() {
+    Widget tab(String label, int index) {
+      final selected = _dailyTab == index;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _dailyTab = index),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: selected ? 0.95 : 0.25),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: selected ? Colors.green[800] : Colors.white,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Row(
+            children: [
+              tab(t("Ayet-i Kerime", "Quran Verse"), 0),
+              const SizedBox(width: 8),
+              tab(t("Günün Hadisi", "Hadith of the Day"), 1),
+            ],
+          ),
+        ),
+        _dailyTab == 0 ? _buildDailyAyah() : _buildDailyHadith(),
+      ],
+    );
+  }
+
+  static const int _hadithMaxLines = 6;
+
+  void _showHadithDialog(Hadith h) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(h.shownTopic, style: const TextStyle(fontSize: 16, color: Colors.green)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(h.shownText, style: const TextStyle(fontSize: 15, height: 1.45)),
+              const SizedBox(height: 12),
+              Text(t("Kaynak: ${h.source}", "Source: ${h.shownSource}"), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                _hadithCredit,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share, color: Colors.green),
+            tooltip: t("Paylaş", "Share"),
+            onPressed: () => _shareHadith(h),
+          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(t("Kapat", "Close"))),
+        ],
+      ),
+    );
+  }
+
+  // İlk açılışta rastgele bir hadisle başlar; her yeni günde sıradaki hadise geçer.
+  // Liste bitince başa döner, yani en eski gösterilen hadis yeniden gösterilir.
+  Future<void> _loadDailyHadith() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    final savedIndex = prefs.getInt('hadith_index');
+    final savedDate = prefs.getString('hadith_date');
+
+    int index;
+    if (savedIndex == null || savedDate == null) {
+      index = Random().nextInt(hadiths.length);
+    } else if (today.compareTo(savedDate) > 0) {
+      index = (savedIndex + 1) % hadiths.length;
+    } else {
+      index = savedIndex % hadiths.length;
+    }
+
+    if (savedIndex != index || savedDate != today) {
+      await prefs.setInt('hadith_index', index);
+      await prefs.setString('hadith_date', savedDate != null && today.compareTo(savedDate) < 0 ? savedDate : today);
+    }
+    if (mounted) setState(() => _hadithIndex = index);
+  }
+
+  String get _hadithCredit => t(
+        "Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri (2022)",
+        "Based on the Turkish text of the Presidency of Religious Affairs (Diyanet), Hadis-i Şerif Metinleri (2022); English translation.",
+      );
+
+  void _shareHadith(Hadith h) {
+    final text = t(
+      "${h.text}\n\n"
+          "Kaynak: ${h.source}\n"
+          "(Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri)\n\n"
+          "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
+      "${h.shownText}\n\n"
+          "Source: ${h.shownSource}\n"
+          "(Diyanet, Hadis-i Şerif Metinleri; English translation)\n\n"
+          "Shared from the Qibla & Prayer Guide app.",
+    );
+    SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: _shareOrigin()));
+  }
+
+  Widget _buildDailyHadith() {
+    final index = _hadithIndex;
+    if (index == null) return const SizedBox.shrink();
+    final h = hadiths[index];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(t("Günün Hadisi", "Hadith of the Day"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              IconButton(
+                icon: const Icon(Icons.share, size: 18, color: Colors.grey),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: t("Paylaş", "Share"),
+                onPressed: () => _shareHadith(h),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const textStyle = TextStyle(fontSize: 15, height: 1.4, color: Colors.black87);
+              final painter = TextPainter(
+                text: TextSpan(text: h.shownText, style: textStyle),
+                maxLines: _hadithMaxLines,
+                textDirection: ui.TextDirection.ltr,
+                textScaler: MediaQuery.textScalerOf(context),
+              )..layout(maxWidth: constraints.maxWidth);
+              final truncated = painter.didExceedMaxLines;
+              return Column(
+                children: [
+                  Text(
+                    h.shownText,
+                    textAlign: TextAlign.center,
+                    maxLines: _hadithMaxLines,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
+                  if (truncated)
+                    TextButton(
+                      onPressed: () => _showHadithDialog(h),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(t("Tamamını oku", "Read more"), style: const TextStyle(fontSize: 13)),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          Text(
+            h.shownTopic,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: Colors.green[800], fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            t("Kaynak: ${h.source}", "Source: ${h.shownSource}"),
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+          ),
+        ],
       ),
     );
   }
@@ -1238,12 +1918,12 @@ class _MainScreenState extends State<MainScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20.0),
       child: Column(
         children: [
-          _prayerItem("İmsak", format.format(prayerTimes!.fajr), currentP == Prayer.fajr),
-          _prayerItem("Güneş", format.format(prayerTimes!.sunrise), currentP == Prayer.sunrise),
-          _prayerItem("Öğle", format.format(prayerTimes!.dhuhr), currentP == Prayer.dhuhr),
-          _prayerItem("İkindi", format.format(prayerTimes!.asr), currentP == Prayer.asr),
-          _prayerItem("Akşam", format.format(prayerTimes!.maghrib), currentP == Prayer.maghrib),
-          _prayerItem("Yatsı", format.format(prayerTimes!.isha), currentP == Prayer.isha),
+          _prayerItem(_getPrayerName(Prayer.fajr), format.format(prayerTimes!.fajr), currentP == Prayer.fajr),
+          _prayerItem(_getPrayerName(Prayer.sunrise), format.format(prayerTimes!.sunrise), currentP == Prayer.sunrise),
+          _prayerItem(_getPrayerName(Prayer.dhuhr), format.format(prayerTimes!.dhuhr), currentP == Prayer.dhuhr),
+          _prayerItem(_getPrayerName(Prayer.asr), format.format(prayerTimes!.asr), currentP == Prayer.asr),
+          _prayerItem(_getPrayerName(Prayer.maghrib), format.format(prayerTimes!.maghrib), currentP == Prayer.maghrib),
+          _prayerItem(_getPrayerName(Prayer.isha), format.format(prayerTimes!.isha), currentP == Prayer.isha),
         ],
       ),
     );
@@ -1290,18 +1970,26 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _shareAyah(Map<String, dynamic> data) {
-    final text = "${data['surah']}, ${data['numberInSurah']}. Ayet\n\n"
-        "${data['arabic']}\n\n"
-        "${data['turkish1'] ?? ''}\n\n"
-        "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.";
-    SharePlus.instance.share(ShareParams(text: text));
+    final text = t(
+      "${_ayahRef(data)}\n\n"
+          "${data['arabic']}\n\n"
+          "${data['turkish1'] ?? ''}\n\n"
+          "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
+      "${_ayahRef(data)}\n\n"
+          "${data['arabic']}\n\n"
+          "${data['english'] ?? ''}\n\n"
+          "Shared from the Qibla & Prayer Guide app.",
+    );
+    SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: _shareOrigin()));
   }
 
   void _showAyahDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return ValueListenableBuilder<Map<String, dynamic>?>(
+        return ValueListenableBuilder<String>(
+          valueListenable: langNotifier,
+          builder: (context, _, _) => ValueListenableBuilder<Map<String, dynamic>?>(
           valueListenable: dailyAyahNotifier,
           builder: (context, dynamicData, child) {
             if (dynamicData == null) return const SizedBox();
@@ -1319,7 +2007,7 @@ class _MainScreenState extends State<MainScreen> {
                       Column(
                         children: [
                           Text(
-                            "Ayet-i Kerime\n(${dynamicData['surah']}, ${dynamicData['numberInSurah']}. Ayet)", 
+                            "${t("Ayet-i Kerime", "Quran Verse")}\n(${_ayahRef(dynamicData)})", 
                             textAlign: TextAlign.center,
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)
                           ),
@@ -1364,30 +2052,33 @@ class _MainScreenState extends State<MainScreen> {
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 26, fontFamily: 'Amiri', fontWeight: FontWeight.bold, height: 2.0),
                       ),
-                      const SizedBox(height: 20),
-                      Text(
-                        dynamicData['transliteration'] ?? '',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
-                      ),
-                      const Divider(height: 30),
-                      const Text("Diyanet İşleri Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
-                      const SizedBox(height: 5),
-                      Text(
-                        dynamicData['turkish1'] ?? '',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
-                      ),
+                      if (!isEnglish) ...[
+                        const SizedBox(height: 20),
+                        Text(
+                          dynamicData['transliteration'] ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+                        ),
+                        const Divider(height: 30),
+                        const Text("Diyanet İşleri Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                        const SizedBox(height: 5),
+                        Text(
+                          dynamicData['turkish1'] ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
+                        ),
+                        const SizedBox(height: 15),
+                        const Text("Elmalılı Hamdi Yazır Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                        const SizedBox(height: 5),
+                        Text(
+                          dynamicData['turkish2'] ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
+                        ),
+                      ] else
+                        const Divider(height: 30),
                       const SizedBox(height: 15),
-                      const Text("Elmalılı Hamdi Yazır Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
-                      const SizedBox(height: 5),
-                      Text(
-                        dynamicData['turkish2'] ?? '',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
-                      ),
-                      const SizedBox(height: 15),
-                      const Text("English Translation (Sahih Int.)", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                      Text(t("English Translation (Sahih Int.)", "Translation (Sahih International)"), textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
                       const SizedBox(height: 5),
                       Text(
                         dynamicData['english'] ?? '',
@@ -1415,7 +2106,7 @@ class _MainScreenState extends State<MainScreen> {
                       IconButton(
                         iconSize: 32,
                         icon: const Icon(Icons.share, color: Colors.green),
-                        tooltip: "Paylaş",
+                        tooltip: t("Paylaş", "Share"),
                         onPressed: () => _shareAyah(dynamicData),
                       ),
                       ElevatedButton(
@@ -1425,16 +2116,30 @@ class _MainScreenState extends State<MainScreen> {
                           Navigator.of(context).pop();
                         },
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700]),
-                        child: const Text("Kapat", style: TextStyle(color: Colors.white)),
+                        child: Text(t("Kapat", "Close"), style: const TextStyle(color: Colors.white)),
                       ),
                     ],
-                  )
+                  ),
+                  ValueListenableBuilder<String?>(
+                    valueListenable: audioNotice,
+                    builder: (context, msg, _) => msg == null
+                        ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              msg,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.red, fontSize: 13),
+                            ),
+                          ),
+                  ),
                 ],
               ),
             ),
           ),
         );
           }
+        ),
         );
       }
     );
@@ -1563,7 +2268,7 @@ class _QiblaScreenState extends State<QiblaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kıble Yönü'),
+        title: Text(t('Kıble Yönü', 'Qibla Direction')),
         backgroundColor: const Color(0xFF6DAF89),
       ),
       body: FutureBuilder<_QiblaReadiness>(
@@ -1577,13 +2282,13 @@ class _QiblaScreenState extends State<QiblaScreen> {
             case _QiblaReadiness.noSensor:
               return _buildMessage(
                 icon: Icons.explore_off,
-                message: "Cihazınızda pusula sensörü bulunmuyor.",
+                message: t("Cihazınızda pusula sensörü bulunmuyor.", "Your device has no compass sensor."),
               );
             case _QiblaReadiness.serviceDisabled:
               return _buildMessage(
                 icon: Icons.location_off,
-                message: "Kıble yönünü bulabilmemiz için telefonunun konum servisini açman gerekiyor.",
-                actionLabel: "Konum Ayarlarını Aç",
+                message: t("Kıble yönünü bulabilmemiz için telefonunun konum servisini açman gerekiyor.", "Please turn on your phone's location service so we can find the qibla direction."),
+                actionLabel: t("Konum Ayarlarını Aç", "Open Location Settings"),
                 onAction: () async {
                   await Geolocator.openLocationSettings();
                   _retry();
@@ -1592,15 +2297,15 @@ class _QiblaScreenState extends State<QiblaScreen> {
             case _QiblaReadiness.permissionDenied:
               return _buildMessage(
                 icon: Icons.location_disabled,
-                message: "Kıble yönünü hesaplayabilmemiz için konum iznine ihtiyacımız var.",
-                actionLabel: "İzin Ver",
+                message: t("Kıble yönünü hesaplayabilmemiz için konum iznine ihtiyacımız var.", "We need location permission to calculate the qibla direction."),
+                actionLabel: t("İzin Ver", "Allow"),
                 onAction: _retry,
               );
             case _QiblaReadiness.permissionDeniedForever:
               return _buildMessage(
                 icon: Icons.location_disabled,
-                message: "Konum izni reddedilmiş. Kıble yönünü gösterebilmemiz için uygulama ayarlarından konum iznini açman gerekiyor.",
-                actionLabel: "Uygulama Ayarlarını Aç",
+                message: t("Konum izni reddedilmiş. Kıble yönünü gösterebilmemiz için uygulama ayarlarından konum iznini açman gerekiyor.", "Location permission was denied. Please enable it in the app settings so we can show the qibla direction."),
+                actionLabel: t("Uygulama Ayarlarını Aç", "Open App Settings"),
                 onAction: () async {
                   await Geolocator.openAppSettings();
                   _retry();
@@ -1638,10 +2343,10 @@ class QiblaCompass extends StatelessWidget {
                 children: [
                   Icon(Icons.location_disabled, size: 56, color: Colors.grey[700]),
                   const SizedBox(height: 20),
-                  const Text(
-                    "Konumuna ulaşamadık. Konum servisinin açık olduğundan emin olup tekrar dener misin?",
+                  Text(
+                    t("Konumuna ulaşamadık. Konum servisinin açık olduğundan emin olup tekrar dener misin?", "We couldn't get your location. Please make sure location services are on and try again."),
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16),
+                    style: const TextStyle(fontSize: 16),
                   ),
                 ],
               ),
@@ -1650,7 +2355,7 @@ class QiblaCompass extends StatelessWidget {
         }
 
         if (!snapshot.hasData || snapshot.data == null) {
-          return const Center(child: Text("Pusula sensörü verisi bekleniyor. (Konumun açık olduğundan emin olun.)"));
+          return Center(child: Text(t("Pusula sensörü verisi bekleniyor. (Konumun açık olduğundan emin olun.)", "Waiting for compass sensor data. (Make sure location is turned on.)")));
         }
 
         final qiblahDirection = snapshot.data!;
@@ -1681,14 +2386,17 @@ class QiblaCompass extends StatelessWidget {
                 ),
                 child: Text(
                   isAligned
-                      ? "Kıbleyi Buldunuz!"
-                      : "Kıbleye dönmek için ${remaining.abs().toStringAsFixed(0)}° ${remaining > 0 ? 'sağa' : 'sola'} çevirin",
+                      ? t("Kıbleyi Buldunuz!", "You are facing the Qibla!")
+                      : t(
+                          "Kıbleye dönmek için ${remaining.abs().toStringAsFixed(0)}° ${remaining > 0 ? 'sağa' : 'sola'} çevirin",
+                          "Turn ${remaining.abs().toStringAsFixed(0)}° to the ${remaining > 0 ? 'right' : 'left'} to face the Qibla",
+                        ),
                   textAlign: TextAlign.center,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                "Kıble, kuzeyden ${qiblahDirection.offset.toStringAsFixed(1)}° yönünde",
+                t("Kıble, kuzeyden ${qiblahDirection.offset.toStringAsFixed(1)}° yönünde", "Qibla is ${qiblahDirection.offset.toStringAsFixed(1)}° from north"),
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
               const SizedBox(height: 40),
@@ -1744,7 +2452,7 @@ class QiblaCompass extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 40),
-              const Text("Pusulayı hizalamak için cihazınızı uzak tutun ve yatay çevirin.", textAlign: TextAlign.center),
+              Text(t("Pusulayı hizalamak için cihazınızı uzak tutun ve yatay çevirin.", "To align the compass, hold your device flat and away from metal objects."), textAlign: TextAlign.center),
             ],
           ),
         );
@@ -1776,10 +2484,10 @@ class CompassRingPainter extends CustomPainter {
     }
 
     const textStyle = TextStyle(color: Colors.black87, fontSize: 22, fontWeight: FontWeight.bold);
-    _drawText(canvas, "K", center, Offset(0, -radius + 25), textStyle); 
-    _drawText(canvas, "G", center, Offset(0, radius - 25), textStyle); 
-    _drawText(canvas, "D", center, Offset(radius - 25, 0), textStyle); 
-    _drawText(canvas, "B", center, Offset(-radius + 25, 0), textStyle); 
+    _drawText(canvas, t("K", "N"), center, Offset(0, -radius + 25), textStyle); 
+    _drawText(canvas, t("G", "S"), center, Offset(0, radius - 25), textStyle); 
+    _drawText(canvas, t("D", "E"), center, Offset(radius - 25, 0), textStyle); 
+    _drawText(canvas, t("B", "W"), center, Offset(-radius + 25, 0), textStyle); 
   }
 
   void _drawText(Canvas canvas, String text, Offset center, Offset offset, TextStyle style) {
@@ -1860,9 +2568,9 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
                 OutlinedButton.icon(
                   onPressed: _resetCount,
                   icon: const Icon(Icons.refresh, size: 18, color: Colors.white70),
-                  label: const Text(
-                    "Sıfırla",
-                    style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                  label: Text(
+                    t("Sıfırla", "Reset"),
+                    style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Colors.white30, width: 1.5),
@@ -1872,9 +2580,9 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
-                const Text(
-                  "Zikirmatik",
-                  style: TextStyle(
+                Text(
+                  t("Zikirmatik", "Dhikr Counter"),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
@@ -1906,9 +2614,9 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
               ),
               child: Column(
                 children: [
-                  const Text(
-                    "SAYAC",
-                    style: TextStyle(
+                  Text(
+                    t("SAYAC", "COUNT"),
+                    style: const TextStyle(
                       color: Color(0xFF34D399),
                       fontSize: 14,
                       letterSpacing: 4,
@@ -1918,6 +2626,7 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
                   const SizedBox(height: 8),
                   Text(
                     "$_count",
+                    textScaler: TextScaler.noScaling,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 72,
@@ -1983,9 +2692,9 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
                                 children: [
                                   Icon(Icons.touch_app, color: Colors.white, size: iconSize),
                                   const SizedBox(height: 8),
-                                  const Text(
-                                    "BAS",
-                                    style: TextStyle(
+                                  Text(
+                                    t("BAS", "TAP"),
+                                    style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 20,
                                       fontWeight: FontWeight.bold,

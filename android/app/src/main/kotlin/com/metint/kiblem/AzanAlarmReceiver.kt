@@ -10,6 +10,9 @@ class AzanAlarmReceiver : BroadcastReceiver() {
         val prayerName = intent.getStringExtra(AzanRingerService.EXTRA_PRAYER_NAME) ?: "Namaz"
         val serviceIntent = Intent(context, AzanRingerService::class.java).apply {
             putExtra(AzanRingerService.EXTRA_PRAYER_NAME, prayerName)
+            putExtra(AzanRingerService.EXTRA_TITLE, intent.getStringExtra(AzanRingerService.EXTRA_TITLE))
+            putExtra(AzanRingerService.EXTRA_BODY, intent.getStringExtra(AzanRingerService.EXTRA_BODY))
+            putExtra(AzanRingerService.EXTRA_STOP_LABEL, intent.getStringExtra(AzanRingerService.EXTRA_STOP_LABEL))
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(serviceIntent)

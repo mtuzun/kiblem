@@ -1,60 +1,101 @@
 import 'package:flutter/material.dart';
 
+import 'l10n.dart';
 import 'main.dart'
     show
         qiblaButtonKey,
         prayerListKey,
         dailyAyahKey,
+        dailyHadithKey,
+        dailyTabsKey,
+        dailyTabNotifier,
         zikirButtonKey,
         settingsButtonKey;
 
 class _CoachStep {
-  final GlobalKey key;
+  // Geniş ekranda ayrı kartlar, dar ekranda sekmeli tek blok olduğu için
+  // ekranda bulunan ilk anahtar kullanılır.
+  final List<GlobalKey> keys;
   final IconData icon;
   final String title;
   final String description;
   final bool isDoubleTap;
+  final VoidCallback? beforeShow;
 
   const _CoachStep({
-    required this.key,
+    required this.keys,
     required this.icon,
     required this.title,
     required this.description,
     this.isDoubleTap = false,
+    this.beforeShow,
   });
+
+  GlobalKey? get mountedKey {
+    for (final k in keys) {
+      if (k.currentContext != null) return k;
+    }
+    return null;
+  }
 }
 
-final List<_CoachStep> _coachSteps = [
+List<_CoachStep> get _coachSteps => [
   _CoachStep(
-    key: qiblaButtonKey,
+    keys: [qiblaButtonKey],
     icon: Icons.explore,
-    title: "Kıble Yönü",
-    description: "Buraya dokunarak pusula ile Kâbe yönünü anında görebilirsin.",
+    title: t("Kıble Yönü", "Qibla Direction"),
+    description: t(
+      "Buraya dokunarak pusula ile Kâbe yönünü anında görebilirsin.",
+      "Tap here to see the direction of the Kaaba instantly with the compass.",
+    ),
   ),
   _CoachStep(
-    key: prayerListKey,
+    keys: [prayerListKey],
     icon: Icons.access_time_filled,
-    title: "Namaz Vakitleri",
-    description: "Şehrine göre hesaplanan namaz vakitleri burada listelenir.",
+    title: t("Namaz Vakitleri", "Prayer Times"),
+    description: t(
+      "Şehrine göre hesaplanan namaz vakitleri burada listelenir.",
+      "Prayer times calculated for your city are listed here.",
+    ),
   ),
   _CoachStep(
-    key: dailyAyahKey,
+    keys: [dailyHadithKey, dailyTabsKey],
+    icon: Icons.format_quote,
+    title: t("Günün Hadisi", "Hadith of the Day"),
+    description: t(
+      "Her gün sıradaki bir hadis-i şerif gösterilir. Uzun hadislerde \"Tamamını oku\" ile metnin tamamını görebilir, paylaş simgesiyle arkadaşlarınla paylaşabilirsin.",
+      "A new hadith is shown each day, in order. For long hadiths, tap \"Read more\" to see the full text, and use the share icon to send it to friends.",
+    ),
+    beforeShow: () => dailyTabNotifier.value = 1,
+  ),
+  _CoachStep(
+    keys: [dailyAyahKey, dailyTabsKey],
     icon: Icons.menu_book,
-    title: "Günün Ayeti",
-    description: "Her gün burada yeni bir ayet gösterilir. Ayete çift dokunarak mealini açabilir ve sesli okunuşunu dinleyebilirsin.",
+    title: t("Ayet-i Kerime", "Quran Verse"),
+    description: t(
+      "Üstteki sekmeden Ayet-i Kerime'ye geçebilirsin. Ayetler sırayla okunur, kaldığın yerden devam eder. Ayete çift dokunarak mealini açabilir ve sesli okunuşunu dinleyebilirsin.",
+      "Use the tab above to switch to the Quran verse. Verses are read in order and continue where you left off. Double-tap a verse to open its translation and listen to the recitation.",
+    ),
     isDoubleTap: true,
+    beforeShow: () => dailyTabNotifier.value = 0,
   ),
   _CoachStep(
-    key: zikirButtonKey,
+    keys: [zikirButtonKey],
     icon: Icons.timer,
-    title: "Zikirmatik",
-    description: "Buraya dokunarak zikir sayacını açabilirsin.",
+    title: t("Zikirmatik", "Dhikr Counter"),
+    description: t(
+      "Buraya dokunarak zikir sayacını açabilirsin.",
+      "Tap here to open the dhikr counter.",
+    ),
   ),
   _CoachStep(
-    key: settingsButtonKey,
+    keys: [settingsButtonKey],
     icon: Icons.settings,
-    title: "Ayarlar",
-    description: "Buradan ezandan istediğin kadar önce (en fazla 15 dakika) hatırlatma bildirimini açabilirsin.",
+    title: t("Ayarlar", "Settings"),
+    description: t(
+      "Buradan ezandan istediğin kadar önce (en fazla 15 dakika) hatırlatma bildirimini açabilir, dili (Türkçe / English) ve yazı boyutunu değiştirebilirsin.",
+      "Here you can turn on a reminder up to 15 minutes before the azan, and change the language (Türkçe / English) and the text size.",
+    ),
   ),
 ];
 
@@ -98,8 +139,19 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay>
 
   Future<void> _measureStep() async {
     final step = _coachSteps[_stepIndex];
-    final ctx = step.key.currentContext;
-    if (ctx == null) {
+    if (step.beforeShow != null) {
+      step.beforeShow!();
+      await WidgetsBinding.instance.endOfFrame;
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+    }
+    await _showStep(step);
+  }
+
+  Future<void> _showStep(_CoachStep step) async {
+    final key = step.mountedKey;
+    final ctx = key?.currentContext;
+    if (key == null || ctx == null) {
       _goNext(skipCurrent: true);
       return;
     }
@@ -112,7 +164,7 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay>
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
 
-    final freshCtx = step.key.currentContext;
+    final freshCtx = key.currentContext;
     final renderBox = freshCtx?.findRenderObject() as RenderBox?;
     if (renderBox == null || !renderBox.hasSize) {
       _goNext(skipCurrent: true);
@@ -172,7 +224,7 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay>
                 child: TextButton(
                   onPressed: widget.onFinished,
                   style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                  child: const Text("Geç", style: TextStyle(fontSize: 15)),
+                  child: Text(t("Geç", "Skip"), style: const TextStyle(fontSize: 15)),
                 ),
               ),
             ],
@@ -329,7 +381,7 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay>
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                     ),
-                    child: Text(_stepIndex == _coachSteps.length - 1 ? "Anladım" : "İleri"),
+                    child: Text(_stepIndex == _coachSteps.length - 1 ? t("Anladım", "Got it") : t("İleri", "Next")),
                   ),
                 ],
               ),

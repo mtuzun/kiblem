@@ -1,0 +1,18 @@
+<<<<
+            ),
+            _buildOfflineDownloadButton(),
+          ],
+====
+            ),
+          ],
+>>>>
+<<<<
+                Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+====
+                Row(
+                  children: [
+                    Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                    _buildOfflineDownloadIcon(),
+                  ],
+                ),
+>>>>

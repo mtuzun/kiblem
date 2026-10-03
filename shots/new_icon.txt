@@ -1,0 +1,36 @@
+  /// Ayet kartındaki küçük "indir" simgesi; indirildiyse hiç görünmez.
+  Widget _buildOfflineDownloadIcon({bool onDark = false}) {
+    return ValueListenableBuilder<OfflineState>(
+      valueListenable: OfflineQuran.state,
+      builder: (context, st, _) {
+        if (kIsWeb || st == OfflineState.ready) return const SizedBox.shrink();
+        if (st == OfflineState.downloading) {
+          return ValueListenableBuilder<double>(
+            valueListenable: OfflineQuran.progress,
+            builder: (context, p, _) => Padding(
+              padding: const EdgeInsets.only(left: 10),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: p == 0 ? null : p,
+                  color: onDark ? Colors.white : Colors.green,
+                ),
+              ),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 10),
+          child: IconButton(
+            icon: Icon(Icons.download, size: 20, color: onDark ? Colors.white : Colors.grey),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: t("Çevrimdışı okumak için indir (~9 MB)", "Download for offline reading (~9 MB)"),
+            onPressed: _requestOfflineDownload,
+          ),
+        );
+      },
+    );
+  }

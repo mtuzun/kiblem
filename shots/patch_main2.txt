@@ -1,0 +1,360 @@
+<<<<
+  Widget _buildDailyAyah() {
+    if (isLoadingAyah) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+
+    if (dailyAyahData == null) {
+      return const Center(child: Text("Ayet bulunamadı.", style: TextStyle(color: Colors.white)));
+    }
+====
+  String _ayahRef(Map<String, dynamic> data) =>
+      t("${data['surah']}, ${data['numberInSurah']}. Ayet", "${data['surah']}, Verse ${data['numberInSurah']}");
+
+  Widget _buildDailyAyah() {
+    if (isLoadingAyah) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+
+    if (dailyAyahData == null) {
+      return Center(child: Text(t("Ayet bulunamadı.", "Verse not found."), style: const TextStyle(color: Colors.white)));
+    }
+>>>>
+<<<<
+                const Text("Ayet-i Kerime", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+====
+                Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+>>>>
+<<<<
+                    Text("${dailyAyahData!['surah']}, ${dailyAyahData!['numberInSurah']}. Ayet", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+====
+                    Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+>>>>
+<<<<
+            const SizedBox(height: 8),
+            Text(
+              dailyAyahData!['transliteration'] ?? '',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.green[800], fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+            ),
+            const Divider(height: 16),
+            const Text("Diyanet İşleri Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+            const SizedBox(height: 4),
+            Text(
+              dailyAyahData!['turkish1'] ?? '',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 8),
+            const Text("Elmalılı Hamdi Yazır Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+            const SizedBox(height: 4),
+            Text(
+              dailyAyahData!['turkish2'] ?? '',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 8),
+            const Text("English Translation (Sahih Int.):", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+====
+            if (!isEnglish) ...[
+              const SizedBox(height: 8),
+              Text(
+                dailyAyahData!['transliteration'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.green[800], fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+              ),
+              const Divider(height: 16),
+              const Text("Diyanet İşleri Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 4),
+              Text(
+                dailyAyahData!['turkish1'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              ),
+              const SizedBox(height: 8),
+              const Text("Elmalılı Hamdi Yazır Meali:", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 4),
+              Text(
+                dailyAyahData!['turkish2'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              ),
+            ] else
+              const Divider(height: 16),
+            const SizedBox(height: 8),
+            Text(t("English Translation (Sahih Int.):", "Translation (Sahih International):"), textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+>>>>
+<<<<
+                const Text("Sure Değiştir", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+====
+                Text(t("Sure Değiştir", "Change Surah"), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+>>>>
+<<<<
+              tab("Günün Ayeti", 0),
+              const SizedBox(width: 8),
+              tab("Günün Hadisi", 1),
+====
+              tab(t("Ayet-i Kerime", "Quran Verse"), 0),
+              const SizedBox(width: 8),
+              tab(t("Günün Hadisi", "Hadith of the Day"), 1),
+>>>>
+<<<<
+        title: Text(h.topic, style: const TextStyle(fontSize: 16, color: Colors.green)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(h.text, style: const TextStyle(fontSize: 15, height: 1.45)),
+              const SizedBox(height: 12),
+              Text("Kaynak: ${h.source}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text(
+                "Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri (2022)",
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share, color: Colors.green),
+            tooltip: "Paylaş",
+            onPressed: () => _shareHadith(h),
+          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Kapat")),
+        ],
+====
+        title: Text(h.shownTopic, style: const TextStyle(fontSize: 16, color: Colors.green)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(h.shownText, style: const TextStyle(fontSize: 15, height: 1.45)),
+              const SizedBox(height: 12),
+              Text(t("Kaynak: ${h.source}", "Source: ${h.shownSource}"), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                _hadithCredit,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share, color: Colors.green),
+            tooltip: t("Paylaş", "Share"),
+            onPressed: () => _shareHadith(h),
+          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(t("Kapat", "Close"))),
+        ],
+>>>>
+<<<<
+  void _shareHadith(Hadith h) {
+    final text = "${h.text}\n\n"
+        "Kaynak: ${h.source}\n"
+        "(Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri)\n\n"
+        "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.";
+====
+  String get _hadithCredit => t(
+        "Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri (2022)",
+        "Based on the Turkish text of the Presidency of Religious Affairs (Diyanet), Hadis-i Şerif Metinleri (2022); English translation.",
+      );
+
+  void _shareHadith(Hadith h) {
+    final text = t(
+      "${h.text}\n\n"
+          "Kaynak: ${h.source}\n"
+          "(Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri)\n\n"
+          "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
+      "${h.shownText}\n\n"
+          "Source: ${h.shownSource}\n"
+          "(Diyanet, Hadis-i Şerif Metinleri; English translation)\n\n"
+          "Shared from the Qibla & Prayer Guide app.",
+    );
+>>>>
+<<<<
+              const Text("Günün Hadisi", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              IconButton(
+                icon: const Icon(Icons.share, size: 18, color: Colors.grey),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: "Paylaş",
+====
+              Text(t("Günün Hadisi", "Hadith of the Day"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              IconButton(
+                icon: const Icon(Icons.share, size: 18, color: Colors.grey),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: t("Paylaş", "Share"),
+>>>>
+<<<<
+                text: TextSpan(text: h.text, style: textStyle),
+====
+                text: TextSpan(text: h.shownText, style: textStyle),
+>>>>
+<<<<
+                  Text(
+                    h.text,
+                    textAlign: TextAlign.center,
+                    maxLines: _hadithMaxLines,
+====
+                  Text(
+                    h.shownText,
+                    textAlign: TextAlign.center,
+                    maxLines: _hadithMaxLines,
+>>>>
+<<<<
+                      child: const Text("Tamamını oku", style: TextStyle(fontSize: 13)),
+====
+                      child: Text(t("Tamamını oku", "Read more"), style: const TextStyle(fontSize: 13)),
+>>>>
+<<<<
+          Text(
+            h.topic,
+            textAlign: TextAlign.center,
+====
+          Text(
+            h.shownTopic,
+            textAlign: TextAlign.center,
+>>>>
+<<<<
+          Text(
+            "Kaynak: ${h.source}",
+            textAlign: TextAlign.center,
+====
+          Text(
+            t("Kaynak: ${h.source}", "Source: ${h.shownSource}"),
+            textAlign: TextAlign.center,
+>>>>
+<<<<
+    final text = "${data['surah']}, ${data['numberInSurah']}. Ayet\n\n"
+        "${data['arabic']}\n\n"
+        "${data['turkish1'] ?? ''}\n\n"
+        "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.";
+====
+    final text = t(
+      "${_ayahRef(data)}\n\n"
+          "${data['arabic']}\n\n"
+          "${data['turkish1'] ?? ''}\n\n"
+          "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
+      "${_ayahRef(data)}\n\n"
+          "${data['arabic']}\n\n"
+          "${data['english'] ?? ''}\n\n"
+          "Shared from the Qibla & Prayer Guide app.",
+    );
+>>>>
+<<<<
+        return ValueListenableBuilder<Map<String, dynamic>?>(
+          valueListenable: dailyAyahNotifier,
+          builder: (context, dynamicData, child) {
+            if (dynamicData == null) return const SizedBox();
+====
+        return ValueListenableBuilder<String>(
+          valueListenable: langNotifier,
+          builder: (context, _, __) => ValueListenableBuilder<Map<String, dynamic>?>(
+          valueListenable: dailyAyahNotifier,
+          builder: (context, dynamicData, child) {
+            if (dynamicData == null) return const SizedBox();
+>>>>
+<<<<
+                            "Ayet-i Kerime\n(${dynamicData['surah']}, ${dynamicData['numberInSurah']}. Ayet)",
+====
+                            "${t("Ayet-i Kerime", "Quran Verse")}\n(${_ayahRef(dynamicData)})",
+>>>>
+<<<<
+                      const SizedBox(height: 20),
+                      Text(
+                        dynamicData['transliteration'] ?? '',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+                      ),
+                      const Divider(height: 30),
+                      const Text("Diyanet İşleri Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                      const SizedBox(height: 5),
+                      Text(
+                        dynamicData['turkish1'] ?? '',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
+                      ),
+                      const SizedBox(height: 15),
+                      const Text("Elmalılı Hamdi Yazır Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                      const SizedBox(height: 5),
+                      Text(
+                        dynamicData['turkish2'] ?? '',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
+                      ),
+                      const SizedBox(height: 15),
+                      const Text("English Translation (Sahih Int.)", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+====
+                      if (!isEnglish) ...[
+                        const SizedBox(height: 20),
+                        Text(
+                          dynamicData['transliteration'] ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+                        ),
+                        const Divider(height: 30),
+                        const Text("Diyanet İşleri Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                        const SizedBox(height: 5),
+                        Text(
+                          dynamicData['turkish1'] ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
+                        ),
+                        const SizedBox(height: 15),
+                        const Text("Elmalılı Hamdi Yazır Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                        const SizedBox(height: 5),
+                        Text(
+                          dynamicData['turkish2'] ?? '',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
+                        ),
+                      ] else
+                        const Divider(height: 30),
+                      const SizedBox(height: 15),
+                      Text(t("English Translation (Sahih Int.)", "Translation (Sahih International)"), textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+>>>>
+<<<<
+                        tooltip: "Paylaş",
+                        onPressed: () => _shareAyah(dynamicData),
+====
+                        tooltip: t("Paylaş", "Share"),
+                        onPressed: () => _shareAyah(dynamicData),
+>>>>
+<<<<
+                        child: const Text("Kapat", style: TextStyle(color: Colors.white)),
+====
+                        child: Text(t("Kapat", "Close"), style: const TextStyle(color: Colors.white)),
+>>>>
+<<<<
+                ],
+              ),
+            ),
+          ),
+        );
+          }
+        );
+      }
+    );
+  }
+}
+
+class MotifPainter
+====
+                ],
+              ),
+            ),
+          ),
+        );
+          }
+        ),
+        );
+      }
+    );
+  }
+}
+
+class MotifPainter
+>>>>

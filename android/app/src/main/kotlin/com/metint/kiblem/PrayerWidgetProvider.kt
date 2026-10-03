@@ -21,7 +21,8 @@ class PrayerWidgetProvider : HomeWidgetProvider() {
                 val prayerName = widgetData.getString("widget_prayer_name", null) ?: "--"
                 val prayerTime = widgetData.getString("widget_prayer_time", null) ?: "--:--"
 
-                setTextViewText(R.id.widget_label, "SONRAKİ VAKİT • ${city.uppercase()}")
+                val label = widgetData.getString("widget_label", null) ?: "SONRAKİ VAKİT • ${city.uppercase()}"
+                setTextViewText(R.id.widget_label, label)
                 setTextViewText(R.id.widget_prayer_name, prayerName)
                 setTextViewText(R.id.widget_prayer_time, prayerTime)
 

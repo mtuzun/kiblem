@@ -1,0 +1,165 @@
+<<<<
+  MobileAds.instance.initialize();
+====
+  // Reklamlar şimdilik yalnızca Android'de; iOS için AdMob uygulaması açılınca eklenecek.
+  if (!kIsWeb && Platform.isAndroid) {
+    MobileAds.instance.initialize();
+  }
+>>>>
+<<<<
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+====
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestSoundPermission: false,
+        requestBadgePermission: false,
+      ),
+>>>>
+<<<<
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+====
+  void _loadBannerAd() {
+    if (kIsWeb || !Platform.isAndroid) return;
+    _bannerAd = BannerAd(
+>>>>
+<<<<
+  Future<void> _checkForUpdate() async {
+    if (kIsWeb) return;
+====
+  Future<void> _checkForUpdate() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+>>>>
+<<<<
+  Future<void> _updateHomeWidget(String prayerName, DateTime prayerTime) async {
+    if (kIsWeb) return;
+====
+  Future<void> _updateHomeWidget(String prayerName, DateTime prayerTime) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+>>>>
+<<<<
+  Future<void> _pickAzanSound() async {
+    if (kIsWeb) return;
+====
+  Future<void> _pickAzanSound() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+>>>>
+<<<<
+      await androidPlugin?.requestNotificationsPermission();
+====
+      await androidPlugin?.requestNotificationsPermission();
+
+      if (_isIos) {
+        final iosPlugin = flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+        final granted = await iosPlugin?.requestPermissions(alert: true, sound: true);
+        if (granted == false && mounted) {
+          _showSnackBar(t(
+            "Bildirim izni verilmedi. Hatırlatıcı için Ayarlar'dan bildirimlere izin ver.",
+            "Notification permission was not granted. Allow notifications in Settings for the reminder.",
+          ));
+        }
+      }
+>>>>
+<<<<
+    if (prayerTimes == null) return;
+    await _cancelAzanReminders();
+====
+    if (prayerTimes == null) return;
+    if (_isIos) {
+      await _scheduleIosReminders();
+      return;
+    }
+    await _cancelAzanReminders();
+>>>>
+<<<<
+  Future<void> _cancelAzanReminders() async {
+    for (int id = 0; id < 5; id++) {
+====
+  bool get _isIos => !kIsWeb && Platform.isIOS;
+
+  Rect _shareOrigin() {
+    final s = MediaQuery.sizeOf(context);
+    return Rect.fromCenter(center: Offset(s.width / 2, s.height / 2), width: 1, height: 1);
+  }
+
+  // iOS'ta uygulama kapalıyken telefon gibi çalan alarm kurulamaz; bunun yerine ezandan
+  // önce sesli bildirim gönderilir. Uygulama açılmasa da sürsün diye 7 gün önceden kurulur.
+  Future<void> _scheduleIosReminders() async {
+    final coords = activeCoordinates;
+    if (coords == null) return;
+    await _cancelAzanReminders();
+
+    final params = CalculationMethod.turkey.getParameters();
+    params.madhab = Madhab.hanafi;
+    final now = DateTime.now();
+    var id = 0;
+    for (var day = 0; day < 7; day++) {
+      final date = now.add(Duration(days: day));
+      final times = PrayerTimes(coords, DateComponents(date.year, date.month, date.day), params);
+      final prayers = <Prayer, DateTime>{
+        Prayer.fajr: times.fajr,
+        Prayer.dhuhr: times.dhuhr,
+        Prayer.asr: times.asr,
+        Prayer.maghrib: times.maghrib,
+        Prayer.isha: times.isha,
+      };
+      for (final entry in prayers.entries) {
+        final at = entry.value.subtract(Duration(minutes: azanReminderMinutes));
+        if (at.isBefore(now)) continue;
+        final name = _getPrayerName(entry.key);
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id: id++,
+          scheduledDate: tz.TZDateTime.from(at, tz.local),
+          notificationDetails: const NotificationDetails(
+            iOS: DarwinNotificationDetails(
+              presentAlert: true,
+              presentSound: true,
+              presentBanner: true,
+              presentList: true,
+            ),
+          ),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          title: t("$name vakti yaklaşıyor", "$name time is approaching"),
+          body: t(
+            "Namaz vaktine $azanReminderMinutes dakika kaldı.",
+            "$azanReminderMinutes minutes until prayer time.",
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _cancelAzanReminders() async {
+    if (kIsWeb) return;
+    if (_isIos) {
+      await flutterLocalNotificationsPlugin.cancelAll();
+      return;
+    }
+    for (int id = 0; id < 5; id++) {
+>>>>
+<<<<
+                    subtitle: Text(t("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır.", "Ring the phone $azanReminderMinutes minutes before prayer time.")),
+====
+                    subtitle: Text(_isIos
+                        ? t("Namaz vaktine $azanReminderMinutes dakika kala sesli bildirim gönder.", "Send a notification with sound $azanReminderMinutes minutes before prayer time.")
+                        : t("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır.", "Ring the phone $azanReminderMinutes minutes before prayer time.")),
+>>>>
+<<<<
+                              t("Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.", "$azanReminderMinutes minutes before prayer time, your phone will ring like an alarm for 1 minute (until you stop it)."),
+====
+                              _isIos
+                                  ? t("Ezana $azanReminderMinutes dakika kala sesli bildirim gelecektir.", "You will get a notification with sound $azanReminderMinutes minutes before prayer time.")
+                                  : t("Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.", "$azanReminderMinutes minutes before prayer time, your phone will ring like an alarm for 1 minute (until you stop it)."),
+>>>>
+<<<<
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.music_note_outlined),
+====
+                    if (!_isIos)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.music_note_outlined),
+>>>>

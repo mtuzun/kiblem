@@ -31,7 +31,7 @@ class MainActivity : FlutterActivity() {
                         putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
                         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
                         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Ezan Sesi Seç")
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, call.argument<String>("title") ?: "Ezan Sesi Seç")
                         putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, currentUri)
                     }
                     startActivityForResult(intent, pickRingtoneRequestCode)
@@ -49,7 +49,12 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<Int>("id") ?: 0
                     val triggerAtMillis = (call.argument<Number>("triggerAtMillis"))?.toLong() ?: 0L
                     val prayerName = call.argument<String>("prayerName") ?: "Namaz"
-                    scheduleAzanAlarm(id, triggerAtMillis, prayerName)
+                    scheduleAzanAlarm(
+                        id, triggerAtMillis, prayerName,
+                        call.argument<String>("title"),
+                        call.argument<String>("body"),
+                        call.argument<String>("stopLabel"),
+                    )
                     result.success(null)
                 }
                 "cancelAzanAlarm" -> {
@@ -121,9 +126,19 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private fun scheduleAzanAlarm(id: Int, triggerAtMillis: Long, prayerName: String) {
+    private fun scheduleAzanAlarm(
+        id: Int,
+        triggerAtMillis: Long,
+        prayerName: String,
+        title: String?,
+        body: String?,
+        stopLabel: String?,
+    ) {
         val intent = Intent(this, AzanAlarmReceiver::class.java).apply {
             putExtra(AzanRingerService.EXTRA_PRAYER_NAME, prayerName)
+            putExtra(AzanRingerService.EXTRA_TITLE, title)
+            putExtra(AzanRingerService.EXTRA_BODY, body)
+            putExtra(AzanRingerService.EXTRA_STOP_LABEL, stopLabel)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             this, id, intent,

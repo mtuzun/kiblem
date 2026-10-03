@@ -1,0 +1,119 @@
+<<<<
+import 'main.dart'
+====
+import 'l10n.dart';
+import 'main.dart'
+>>>>
+<<<<
+final List<_CoachStep> _coachSteps = [
+  _CoachStep(
+    keys: [qiblaButtonKey],
+    icon: Icons.explore,
+    title: "Kıble Yönü",
+    description: "Buraya dokunarak pusula ile Kâbe yönünü anında görebilirsin.",
+  ),
+  _CoachStep(
+    keys: [prayerListKey],
+    icon: Icons.access_time_filled,
+    title: "Namaz Vakitleri",
+    description: "Şehrine göre hesaplanan namaz vakitleri burada listelenir.",
+  ),
+  _CoachStep(
+    keys: [dailyHadithKey, dailyTabsKey],
+    icon: Icons.format_quote,
+    title: "Günün Hadisi",
+    description: "Her gün sıradaki bir hadis-i şerif gösterilir. Uzun hadislerde \"Tamamını oku\" ile metnin tamamını görebilir, paylaş simgesiyle arkadaşlarınla paylaşabilirsin.",
+    beforeShow: () => dailyTabNotifier.value = 1,
+  ),
+  _CoachStep(
+    keys: [dailyAyahKey, dailyTabsKey],
+    icon: Icons.menu_book,
+    title: "Günün Ayeti",
+    description: "Üstteki sekmeden Günün Ayeti'ne geçebilirsin. Ayete çift dokunarak mealini açabilir ve sesli okunuşunu dinleyebilirsin.",
+    isDoubleTap: true,
+    beforeShow: () => dailyTabNotifier.value = 0,
+  ),
+  _CoachStep(
+    keys: [zikirButtonKey],
+    icon: Icons.timer,
+    title: "Zikirmatik",
+    description: "Buraya dokunarak zikir sayacını açabilirsin.",
+  ),
+  _CoachStep(
+    keys: [settingsButtonKey],
+    icon: Icons.settings,
+    title: "Ayarlar",
+    description: "Buradan ezandan istediğin kadar önce (en fazla 15 dakika) hatırlatma bildirimini açabilirsin.",
+  ),
+];
+====
+List<_CoachStep> get _coachSteps => [
+  _CoachStep(
+    keys: [qiblaButtonKey],
+    icon: Icons.explore,
+    title: t("Kıble Yönü", "Qibla Direction"),
+    description: t(
+      "Buraya dokunarak pusula ile Kâbe yönünü anında görebilirsin.",
+      "Tap here to see the direction of the Kaaba instantly with the compass.",
+    ),
+  ),
+  _CoachStep(
+    keys: [prayerListKey],
+    icon: Icons.access_time_filled,
+    title: t("Namaz Vakitleri", "Prayer Times"),
+    description: t(
+      "Şehrine göre hesaplanan namaz vakitleri burada listelenir.",
+      "Prayer times calculated for your city are listed here.",
+    ),
+  ),
+  _CoachStep(
+    keys: [dailyHadithKey, dailyTabsKey],
+    icon: Icons.format_quote,
+    title: t("Günün Hadisi", "Hadith of the Day"),
+    description: t(
+      "Her gün sıradaki bir hadis-i şerif gösterilir. Uzun hadislerde \"Tamamını oku\" ile metnin tamamını görebilir, paylaş simgesiyle arkadaşlarınla paylaşabilirsin.",
+      "A new hadith is shown each day, in order. For long hadiths, tap \"Read more\" to see the full text, and use the share icon to send it to friends.",
+    ),
+    beforeShow: () => dailyTabNotifier.value = 1,
+  ),
+  _CoachStep(
+    keys: [dailyAyahKey, dailyTabsKey],
+    icon: Icons.menu_book,
+    title: t("Ayet-i Kerime", "Quran Verse"),
+    description: t(
+      "Üstteki sekmeden Ayet-i Kerime'ye geçebilirsin. Ayetler sırayla okunur, kaldığın yerden devam eder. Ayete çift dokunarak mealini açabilir ve sesli okunuşunu dinleyebilirsin.",
+      "Use the tab above to switch to the Quran verse. Verses are read in order and continue where you left off. Double-tap a verse to open its translation and listen to the recitation.",
+    ),
+    isDoubleTap: true,
+    beforeShow: () => dailyTabNotifier.value = 0,
+  ),
+  _CoachStep(
+    keys: [zikirButtonKey],
+    icon: Icons.timer,
+    title: t("Zikirmatik", "Dhikr Counter"),
+    description: t(
+      "Buraya dokunarak zikir sayacını açabilirsin.",
+      "Tap here to open the dhikr counter.",
+    ),
+  ),
+  _CoachStep(
+    keys: [settingsButtonKey],
+    icon: Icons.settings,
+    title: t("Ayarlar", "Settings"),
+    description: t(
+      "Buradan ezandan istediğin kadar önce (en fazla 15 dakika) hatırlatma bildirimini açabilir, dili (Türkçe / English) değiştirebilirsin.",
+      "Here you can turn on a reminder up to 15 minutes before the azan, and switch the language (Türkçe / English).",
+    ),
+  ),
+];
+>>>>
+<<<<
+                  child: const Text("Geç", style: TextStyle(fontSize: 15)),
+====
+                  child: Text(t("Geç", "Skip"), style: const TextStyle(fontSize: 15)),
+>>>>
+<<<<
+                    child: Text(_stepIndex == _coachSteps.length - 1 ? "Anladım" : "İleri"),
+====
+                    child: Text(_stepIndex == _coachSteps.length - 1 ? t("Anladım", "Got it") : t("İleri", "Next")),
+>>>>

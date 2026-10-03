@@ -1,0 +1,20 @@
+<<<<
+      Position position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium));
+====
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 20),
+        ),
+      );
+>>>>
+<<<<
+      _showSnackBar(t("Konum alınırken hata oluştu.", "Could not get your location."));
+====
+      _showSnackBar(e is TimeoutException
+          ? t(
+              "Konum alınamadı. Açık bir alana çıkıp konum servisinin açık olduğundan emin ol.",
+              "Could not get a location fix. Move to an open area and make sure location services are on.",
+            )
+          : t("Konum alınırken hata oluştu.", "Could not get your location."));
+>>>>

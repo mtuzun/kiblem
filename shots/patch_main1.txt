@@ -1,0 +1,315 @@
+<<<<
+import 'hadith_data.dart';
+====
+import 'hadith_data.dart';
+import 'l10n.dart';
+>>>>
+<<<<
+    orElse: () => ThemeMode.system,
+  );
+
+  runApp
+====
+    orElse: () => ThemeMode.system,
+  );
+  await loadSavedLanguage();
+
+  runApp
+>>>>
+<<<<
+    dailyTabNotifier.addListener(_onDailyTabChanged);
+====
+    dailyTabNotifier.addListener(_onDailyTabChanged);
+    langNotifier.addListener(_onLangChanged);
+>>>>
+<<<<
+    dailyTabNotifier.removeListener(_onDailyTabChanged);
+====
+    dailyTabNotifier.removeListener(_onDailyTabChanged);
+    langNotifier.removeListener(_onLangChanged);
+>>>>
+<<<<
+  int? _hadithIndex;
+====
+  void _onLangChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _updateTimeLeft();
+    if (azanReminderEnabled) _scheduleAzanReminders();
+  }
+
+  int? _hadithIndex;
+>>>>
+<<<<
+              content: const Text("Yeni bir sürüm indirildi."),
+====
+              content: Text(t("Yeni bir sürüm indirildi.", "A new version has been downloaded.")),
+>>>>
+<<<<
+                label: "GÜNCELLE",
+====
+                label: t("GÜNCELLE", "UPDATE"),
+>>>>
+<<<<
+        _showSnackBar("Konum servisleri kapalı.");
+====
+        _showSnackBar(t("Konum servisleri kapalı.", "Location services are turned off."));
+>>>>
+<<<<
+          _showSnackBar("Konum izni reddedildi.");
+====
+          _showSnackBar(t("Konum izni reddedildi.", "Location permission was denied."));
+>>>>
+<<<<
+        _showSnackBar("Konum izni kalıcı olarak reddedildi.");
+====
+        _showSnackBar(t("Konum izni kalıcı olarak reddedildi.", "Location permission was permanently denied."));
+>>>>
+<<<<
+        _showSnackBar("$matchedCity konumu bulundu.");
+====
+        _showSnackBar(t("$matchedCity konumu bulundu.", "Location found: $matchedCity."));
+>>>>
+<<<<
+      _showSnackBar("Konum alınırken hata oluştu.");
+====
+      _showSnackBar(t("Konum alınırken hata oluştu.", "Could not get your location."));
+>>>>
+<<<<
+          'Özel Ses';
+====
+          t('Özel Ses', 'Custom sound');
+>>>>
+<<<<
+        {'currentUri': currentUri},
+====
+        {'currentUri': currentUri, 'title': t('Ezan Sesi Seç', 'Choose Azan Sound')},
+>>>>
+<<<<
+              title: const Text('İzin Gerekli'),
+              content: const Text(
+                'Ezan hatırlatıcısının tam zamanında çalabilmesi için "Alarmlar ve Hatırlatıcılar" iznini açman gerekiyor. Açılan ayarlar ekranından bu uygulamaya izin ver.',
+              ),
+====
+              title: Text(t('İzin Gerekli', 'Permission Required')),
+              content: Text(t(
+                'Ezan hatırlatıcısının tam zamanında çalabilmesi için "Alarmlar ve Hatırlatıcılar" iznini açman gerekiyor. Açılan ayarlar ekranından bu uygulamaya izin ver.',
+                'To ring exactly on time, the azan reminder needs the "Alarms & reminders" permission. Please allow it for this app in the settings screen that opens.',
+              )),
+>>>>
+<<<<
+                  child: const Text('Vazgeç'),
+====
+                  child: Text(t('Vazgeç', 'Cancel')),
+>>>>
+<<<<
+                  child: const Text('Ayarları Aç'),
+====
+                  child: Text(t('Ayarları Aç', 'Open Settings')),
+>>>>
+<<<<
+        'prayerName': prayerName,
+      });
+====
+        'prayerName': prayerName,
+        'title': t("$prayerName Vakti", "$prayerName time"),
+        'body': t(
+          "Ezan vakti geldi — durdurmak için dokunun",
+          "It's time for the call to prayer — tap to stop",
+        ),
+        'stopLabel': t("Durdur", "Stop"),
+      });
+>>>>
+<<<<
+            return AlertDialog(
+              title: const Text("Ayarlar"),
+====
+            return ValueListenableBuilder<String>(
+              valueListenable: langNotifier,
+              builder: (context, _, __) => AlertDialog(
+              title: Text(t("Ayarlar", "Settings")),
+>>>>
+<<<<
+                    title: const Text("Ezan Hatırlatıcısı"),
+                    subtitle: Text("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır."),
+====
+                    title: Text(t("Ezan Hatırlatıcısı", "Azan Reminder")),
+                    subtitle: Text(t("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır.", "Ring the phone $azanReminderMinutes minutes before prayer time.")),
+>>>>
+<<<<
+                              "Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.",
+====
+                              t("Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.", "$azanReminderMinutes minutes before prayer time, your phone will ring like an alarm for 1 minute (until you stop it)."),
+>>>>
+<<<<
+                          const Text("Süre:", style: TextStyle(fontSize: 13)),
+====
+                          Text(t("Süre:", "Time:"), style: const TextStyle(fontSize: 13)),
+>>>>
+<<<<
+                              label: "$azanReminderMinutes dk",
+====
+                              label: t("$azanReminderMinutes dk", "$azanReminderMinutes min"),
+>>>>
+<<<<
+                            width: 40,
+                            child: Text("$azanReminderMinutes dk", style: const TextStyle(fontSize: 13)),
+====
+                            width: 52,
+                            child: Text(t("$azanReminderMinutes dk", "$azanReminderMinutes min"), style: const TextStyle(fontSize: 13)),
+>>>>
+<<<<
+                      title: const Text("Ezan Sesini Seç"),
+====
+                      title: Text(t("Ezan Sesini Seç", "Choose Azan Sound")),
+>>>>
+<<<<
+                            ? "Seçili ses: $azanSoundTitle"
+                            : "Sadece bu hatırlatıcı için bir ses seç (telefonunun zil/bildirim sesini değiştirmez).",
+====
+                            ? t("Seçili ses: $azanSoundTitle", "Selected sound: $azanSoundTitle")
+                            : t("Sadece bu hatırlatıcı için bir ses seç (telefonunun zil/bildirim sesini değiştirmez).", "Pick a sound just for this reminder (your phone's ringtone is not changed)."),
+>>>>
+<<<<
+                  const Text("Görünüm", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: themeModeNotifier,
+                    builder: (context, mode, _) {
+                      return SegmentedButton<ThemeMode>(
+                        segments: const [
+                          ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode), label: Text("Açık")),
+                          ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode), label: Text("Koyu")),
+                          ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.settings_suggest), label: Text("Sistem")),
+                        ],
+====
+                  Text(t("Dil", "Language"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'tr', label: Text("Türkçe")),
+                      ButtonSegment(value: 'en', label: Text("English")),
+                    ],
+                    selected: {langNotifier.value},
+                    onSelectionChanged: (selected) => setLanguage(selected.first),
+                  ),
+                  const Divider(height: 24),
+                  Text(t("Görünüm", "Appearance"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: themeModeNotifier,
+                    builder: (context, mode, _) {
+                      return SegmentedButton<ThemeMode>(
+                        segments: [
+                          ButtonSegment(value: ThemeMode.light, icon: const Icon(Icons.light_mode), label: Text(t("Açık", "Light"))),
+                          ButtonSegment(value: ThemeMode.dark, icon: const Icon(Icons.dark_mode), label: Text(t("Koyu", "Dark"))),
+                          ButtonSegment(value: ThemeMode.system, icon: const Icon(Icons.settings_suggest), label: Text(t("Sistem", "System"))),
+                        ],
+>>>>
+<<<<
+                    title: const Text("Uygulama Tanıtımını Göster"),
+====
+                    title: Text(t("Uygulama Tanıtımını Göster", "Show App Tour")),
+>>>>
+<<<<
+                  child: const Text("Kapat"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _updateTimeLeft
+====
+                  child: Text(t("Kapat", "Close")),
+                ),
+              ],
+            ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _updateTimeLeft
+>>>>
+<<<<
+      await HomeWidget.saveWidgetData<String>('widget_prayer_name', prayerName);
+====
+      await HomeWidget.saveWidgetData<String>('widget_prayer_name', prayerName);
+      final cityUpper = currentCity.replaceAll('i', 'İ').replaceAll('ı', 'I').toUpperCase();
+      await HomeWidget.saveWidgetData<String>(
+        'widget_label',
+        t("SONRAKİ VAKİT • $cityUpper", "NEXT PRAYER • $cityUpper"),
+      );
+>>>>
+<<<<
+      case Prayer.fajr: return "İmsak";
+      case Prayer.sunrise: return "Güneş";
+      case Prayer.dhuhr: return "Öğle";
+      case Prayer.asr: return "İkindi";
+      case Prayer.maghrib: return "Akşam";
+      case Prayer.isha: return "Yatsı";
+====
+      case Prayer.fajr: return t("İmsak", "Fajr");
+      case Prayer.sunrise: return t("Güneş", "Sunrise");
+      case Prayer.dhuhr: return t("Öğle", "Dhuhr");
+      case Prayer.asr: return t("İkindi", "Asr");
+      case Prayer.maghrib: return t("Akşam", "Maghrib");
+      case Prayer.isha: return t("Yatsı", "Isha");
+>>>>
+<<<<
+          _prayerItem("İmsak", format.format(prayerTimes!.fajr), currentP == Prayer.fajr),
+          _prayerItem("Güneş", format.format(prayerTimes!.sunrise), currentP == Prayer.sunrise),
+          _prayerItem("Öğle", format.format(prayerTimes!.dhuhr), currentP == Prayer.dhuhr),
+          _prayerItem("İkindi", format.format(prayerTimes!.asr), currentP == Prayer.asr),
+          _prayerItem("Akşam", format.format(prayerTimes!.maghrib), currentP == Prayer.maghrib),
+          _prayerItem("Yatsı", format.format(prayerTimes!.isha), currentP == Prayer.isha),
+====
+          _prayerItem(_getPrayerName(Prayer.fajr), format.format(prayerTimes!.fajr), currentP == Prayer.fajr),
+          _prayerItem(_getPrayerName(Prayer.sunrise), format.format(prayerTimes!.sunrise), currentP == Prayer.sunrise),
+          _prayerItem(_getPrayerName(Prayer.dhuhr), format.format(prayerTimes!.dhuhr), currentP == Prayer.dhuhr),
+          _prayerItem(_getPrayerName(Prayer.asr), format.format(prayerTimes!.asr), currentP == Prayer.asr),
+          _prayerItem(_getPrayerName(Prayer.maghrib), format.format(prayerTimes!.maghrib), currentP == Prayer.maghrib),
+          _prayerItem(_getPrayerName(Prayer.isha), format.format(prayerTimes!.isha), currentP == Prayer.isha),
+>>>>
+<<<<
+                    tooltip: "Mevcut Konumu Bul",
+====
+                    tooltip: t("Mevcut Konumu Bul", "Find My Location"),
+>>>>
+<<<<
+                          const SnackBar(content: Text('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.')),
+====
+                          SnackBar(content: Text(t('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.', 'The qibla compass is not supported in web browsers. Please try it on mobile.'))),
+>>>>
+<<<<
+                    tooltip: "Kıble Yönü",
+====
+                    tooltip: t("Kıble Yönü", "Qibla Direction"),
+>>>>
+<<<<
+                    tooltip: "Zikirmatik / Sayaç",
+====
+                    tooltip: t("Zikirmatik / Sayaç", "Dhikr Counter"),
+>>>>
+<<<<
+                    tooltip: "Ayarlar",
+====
+                    tooltip: t("Ayarlar", "Settings"),
+>>>>
+<<<<
+                        "$nextPrayerName vaktine kalan süre",
+====
+                        t("$nextPrayerName vaktine kalan süre", "Time until $nextPrayerName"),
+>>>>
+<<<<
+    const ayIsimleri = ["", "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
+    final dateStr = "${now.day.toString().padLeft(2, '0')} ${ayIsimleri[now.month]} ${now.year}";
+====
+    final dateStr = "${now.day.toString().padLeft(2, '0')} ${shortMonth(now.month)} ${now.year}";
+>>>>
