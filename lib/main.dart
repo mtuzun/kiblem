@@ -54,8 +54,7 @@ Future<void> setThemeMode(ThemeMode mode) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Reklamlar şimdilik yalnızca Android'de; iOS için AdMob uygulaması açılınca eklenecek.
-  if (!kIsWeb && Platform.isAndroid) {
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     MobileAds.instance.initialize();
   }
 
@@ -445,9 +444,11 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _loadBannerAd() {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
     _bannerAd = BannerAd(
-      adUnitId: 'ca-app-pub-9864338488985680/1217505985',
+      adUnitId: Platform.isIOS
+          ? 'ca-app-pub-9864338488985680/6030487575'
+          : 'ca-app-pub-9864338488985680/1217505985',
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
