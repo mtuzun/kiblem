@@ -1031,7 +1031,10 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  bool get _isIos => !kIsWeb && Platform.isIOS;
+  // Mağaza ekran görüntüleri web'den çekilirken iOS metinlerini göstermek için
+  // (--dart-define=STORE_SHOT_IOS=true). Normal derlemelerde false.
+  static const bool _storeShotIos = bool.fromEnvironment('STORE_SHOT_IOS');
+  bool get _isIos => _storeShotIos || (!kIsWeb && Platform.isIOS);
 
   Rect _shareOrigin() {
     final s = MediaQuery.sizeOf(context);
