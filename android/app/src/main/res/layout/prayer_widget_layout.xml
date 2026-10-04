@@ -6,10 +6,10 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_background"
-    android:paddingLeft="8dp"
-    android:paddingTop="4dp"
-    android:paddingRight="8dp"
-    android:paddingBottom="4dp">
+    android:paddingLeft="12dp"
+    android:paddingTop="8dp"
+    android:paddingRight="12dp"
+    android:paddingBottom="8dp">
 
     <TextView
         android:id="@+id/widget_label"
@@ -22,73 +22,26 @@
         android:ellipsize="end"
         android:autoSizeTextType="uniform"
         android:autoSizeMinTextSize="8sp"
-        android:autoSizeMaxTextSize="12sp"
+        android:autoSizeMaxTextSize="14sp"
         android:autoSizeStepGranularity="1sp"
         android:textColor="#D9FFFFFF"
         android:textSize="12sp"
-        android:textStyle="bold"
-        android:letterSpacing="0.04"
-        tools:text="SONRAKİ VAKİT • İSTANBUL" />
+        tools:text="İkindi için kalan süre" />
 
-    <LinearLayout
+    <TextView
+        android:id="@+id/widget_countdown"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="2"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/widget_prayer_name"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:gravity="center_vertical"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="8sp"
-            android:autoSizeMaxTextSize="22sp"
-            android:autoSizeStepGranularity="1sp"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            tools:text="İkindi" />
-
-        <TextView
-            android:id="@+id/widget_prayer_time"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="end|center_vertical"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="8sp"
-            android:autoSizeMaxTextSize="26sp"
-            android:autoSizeStepGranularity="1sp"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            tools:text="16:45" />
-
-        <TextView
-            android:id="@+id/widget_countdown"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="2"
-            android:layout_marginStart="4dp"
-            android:gravity="end|center_vertical"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="8sp"
-            android:autoSizeMaxTextSize="26sp"
-            android:autoSizeStepGranularity="1sp"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            tools:text="2 saat 20 dk" />
-    </LinearLayout>
+        android:gravity="start|center_vertical"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="8sp"
+        android:autoSizeMaxTextSize="36sp"
+        android:autoSizeStepGranularity="1sp"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        tools:text="2 sa 20 dk" />
 </LinearLayout>

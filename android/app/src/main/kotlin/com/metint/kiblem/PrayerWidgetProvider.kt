@@ -9,7 +9,6 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
-import android.view.View
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
@@ -70,29 +69,24 @@ class PrayerWidgetProvider : HomeWidgetProvider() {
             // Launcher dimensions are in dp, regardless of screen pixel density.
             val compact = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 40) < 64 ||
                 options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 110) < 240
-            val views = RemoteViews(context.packageName, R.layout.prayer_widget_layout).apply {
-                val city = widgetData.getString("widget_city", null) ?: "Namaz Vakti"
+            val layout = if (compact) R.layout.prayer_widget_compact_layout else R.layout.prayer_widget_layout
+            val views = RemoteViews(context.packageName, layout).apply {
                 val prayerName = nextPrayer?.optString("name")
                     ?: if (timeline != null) "--" else widgetData.getString("widget_prayer_name", null) ?: "--"
-                val prayerTime = nextPrayer?.optString("time")
-                    ?: if (timeline != null) "--:--" else widgetData.getString("widget_prayer_time", null) ?: "--:--"
-
-                val label = widgetData.getString("widget_label", null) ?: "SONRAKİ VAKİT • ${city.uppercase()}"
-                setTextViewText(R.id.widget_label, label)
-                setTextViewText(R.id.widget_prayer_name, prayerName)
-                setTextViewText(R.id.widget_prayer_time, prayerTime)
-                setViewVisibility(R.id.widget_label, if (compact) View.GONE else View.VISIBLE)
-                setViewVisibility(R.id.widget_prayer_time, if (compact) View.GONE else View.VISIBLE)
+                val english = widgetData.getString("widget_language", "tr") == "en"
+                if (!compact) {
+                    val label = if (english) "Time until $prayerName" else "$prayerName için kalan süre"
+                    setTextViewText(R.id.widget_label, label)
+                }
 
                 val prayerTimestamp = nextPrayer?.optLong("timestamp")
                     ?: if (timeline != null) null else widgetData.getString("widget_prayer_timestamp", null)?.toLongOrNull()
                 val remainingMillis = (prayerTimestamp ?: 0L) - now
-                val english = widgetData.getString("widget_language", "tr") == "en"
                 val remainingText = if (remainingMillis > 0) {
                     val totalMinutes = (remainingMillis + 59_999) / 60_000
                     val hours = totalMinutes / 60
                     val minutes = totalMinutes % 60
-                    val hourLabel = if (english) "h" else "saat"
+                    val hourLabel = if (english) "h" else "sa"
                     val minuteLabel = if (english) "min" else "dk"
                     when {
                         hours == 0L -> "$minutes $minuteLabel"
@@ -102,7 +96,10 @@ class PrayerWidgetProvider : HomeWidgetProvider() {
                 } else {
                     "--"
                 }
-                setTextViewText(R.id.widget_countdown, remainingText)
+                setTextViewText(
+                    R.id.widget_countdown,
+                    if (compact) "$prayerName · $remainingText" else remainingText,
+                )
 
                 val pendingIntent = HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java)
                 setOnClickPendingIntent(R.id.widget_container, pendingIntent)

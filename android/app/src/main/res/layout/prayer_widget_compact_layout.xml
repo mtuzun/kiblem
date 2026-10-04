@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:paddingLeft="8dp"
+    android:paddingTop="4dp"
+    android:paddingRight="8dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/widget_countdown"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="start|center_vertical"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="8sp"
+        android:autoSizeMaxTextSize="26sp"
+        android:autoSizeStepGranularity="1sp"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        tools:text="İkindi · 2 sa 20 dk" />
+</FrameLayout>
