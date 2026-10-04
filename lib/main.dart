@@ -2336,12 +2336,16 @@ class _QiblaScreenState extends State<QiblaScreen> {
 }
 
 class QiblaCompass extends StatelessWidget {
-  const QiblaCompass({super.key});
+  const QiblaCompass({super.key, this.stream});
+
+  /// Yalnızca mağaza ekran görüntüsü aracı içindir; normalde cihaz pusulası kullanılır.
+  final Stream<QiblahDirection>? stream;
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return StreamBuilder(
-      stream: FlutterQiblah.qiblahStream,
+      stream: stream ?? FlutterQiblah.qiblahStream,
       builder: (_, AsyncSnapshot<QiblahDirection> snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -2395,7 +2399,9 @@ class QiblaCompass extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: isAligned ? Colors.green.shade700 : Colors.black87,
+                  color: isAligned
+                      ? (isDark ? Colors.green.shade300 : Colors.green.shade700)
+                      : (isDark ? Colors.white : Colors.black87),
                 ),
                 child: Text(
                   isAligned
@@ -2436,7 +2442,7 @@ class QiblaCompass extends StatelessWidget {
                     angle: (qiblahDirection.direction * (pi / 180) * -1),
                     child: CustomPaint(
                       size: const Size(300, 300),
-                      painter: CompassRingPainter(),
+                      painter: CompassRingPainter(isDark: isDark),
                     ),
                   ),
                   // Kaaba Indicator
@@ -2457,9 +2463,9 @@ class QiblaCompass extends StatelessWidget {
                     ),
                   ),
                   // Phone heading indicator (fixed at top)
-                  const Positioned(
+                  Positioned(
                     top: -15,
-                    child: Icon(Icons.arrow_drop_up, size: 40, color: Colors.black54),
+                    child: Icon(Icons.arrow_drop_up, size: 40, color: isDark ? Colors.white70 : Colors.black54),
                   ),
                   Icon(Icons.fiber_manual_record, size: 15, color: isAligned ? Colors.amber.shade700 : Colors.green),
                 ],
@@ -2475,18 +2481,21 @@ class QiblaCompass extends StatelessWidget {
 }
 
 class CompassRingPainter extends CustomPainter {
+  final bool isDark;
+  const CompassRingPainter({this.isDark = false});
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
 
     final ringPaint = Paint()
-      ..color = Colors.green.shade800
+      ..color = isDark ? Colors.green.shade400 : Colors.green.shade800
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
-    canvas.drawCircle(center, radius, ringPaint);
+    canvas.drawCircle(center, radius - ringPaint.strokeWidth / 2, ringPaint);
 
-    final tickPaint = Paint()..color = Colors.green.shade900..strokeWidth = 2;
+    final tickPaint = Paint()..color = (isDark ? Colors.green.shade300 : Colors.green.shade900)..strokeWidth = 2;
     for (int i = 0; i < 360; i += 45) {
       if (i % 90 != 0) {
         final angle = i * pi / 180;
@@ -2496,7 +2505,7 @@ class CompassRingPainter extends CustomPainter {
       }
     }
 
-    const textStyle = TextStyle(color: Colors.black87, fontSize: 22, fontWeight: FontWeight.bold);
+    final textStyle = TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 22, fontWeight: FontWeight.bold);
     _drawText(canvas, t("K", "N"), center, Offset(0, -radius + 25), textStyle); 
     _drawText(canvas, t("G", "S"), center, Offset(0, radius - 25), textStyle); 
     _drawText(canvas, t("D", "E"), center, Offset(radius - 25, 0), textStyle); 
@@ -2516,7 +2525,7 @@ class CompassRingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant CompassRingPainter oldDelegate) => oldDelegate.isDark != isDark;
 }
 
 class ZikirmatikDialog extends StatefulWidget {
