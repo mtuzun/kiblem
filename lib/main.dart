@@ -1309,7 +1309,7 @@ class _MainScreenState extends State<MainScreen> {
       nextPrayerName = _getPrayerName(nextPrayer!);
     });
 
-    final widgetKey = "$nextPrayerName-${nextPrayerTime.hour}:${nextPrayerTime.minute}";
+    final widgetKey = "$nextPrayerName-${nextPrayerTime.millisecondsSinceEpoch}-$currentCity-$isEnglish";
     if (widgetKey != _lastWidgetKey) {
       _lastWidgetKey = widgetKey;
       _updateHomeWidget(nextPrayerName, nextPrayerTime);
@@ -1323,12 +1323,44 @@ class _MainScreenState extends State<MainScreen> {
           "${prayerTime.hour.toString().padLeft(2, '0')}:${prayerTime.minute.toString().padLeft(2, '0')}";
       await HomeWidget.saveWidgetData<String>('widget_city', currentCity);
       await HomeWidget.saveWidgetData<String>('widget_prayer_name', prayerName);
+      await HomeWidget.saveWidgetData<String>('widget_language', isEnglish ? 'en' : 'tr');
       final cityUpper = currentCity.replaceAll('i', 'İ').replaceAll('ı', 'I').toUpperCase();
       await HomeWidget.saveWidgetData<String>(
         'widget_label',
         t("SONRAKİ VAKİT • $cityUpper", "NEXT PRAYER • $cityUpper"),
       );
       await HomeWidget.saveWidgetData<String>('widget_prayer_time', timeStr);
+      await HomeWidget.saveWidgetData<String>(
+        'widget_prayer_timestamp',
+        prayerTime.millisecondsSinceEpoch.toString(),
+      );
+      final now = DateTime.now();
+      final timeline = <Map<String, Object>>[];
+      final coordinates = activeCoordinates;
+      if (coordinates != null) {
+        final params = CalculationMethod.turkey.getParameters();
+        params.madhab = Madhab.hanafi;
+        // Keep upcoming prayers available while the app is closed.
+        for (var day = 0; day < 7; day++) {
+          final date = DateTime(now.year, now.month, now.day + day);
+          final times = PrayerTimes(
+            coordinates,
+            DateComponents(date.year, date.month, date.day),
+            params,
+          );
+          for (final prayer in [Prayer.fajr, Prayer.sunrise, Prayer.dhuhr,
+            Prayer.asr, Prayer.maghrib, Prayer.isha]) {
+            final time = times.timeForPrayer(prayer);
+            if (time == null || !time.isAfter(now)) continue;
+            timeline.add({
+              'name': _getPrayerName(prayer),
+              'time': '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+              'timestamp': time.millisecondsSinceEpoch,
+            });
+          }
+        }
+      }
+      await HomeWidget.saveWidgetData<String>('widget_prayer_timeline', jsonEncode(timeline));
       await HomeWidget.updateWidget(androidName: 'PrayerWidgetProvider');
     } catch (e) {
       debugPrint("Widget güncellenemedi: $e");
@@ -2743,4 +2775,3 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
     );
   }
 }
-
