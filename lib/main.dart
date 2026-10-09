@@ -1107,9 +1107,14 @@ class _MainScreenState extends State<MainScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Diyanet'in yayımladığı vakitlerle uyumlu hesap: Türkiye yöntemi ve standart (Şâfiî) ikindi.
+  /// Hanefi ikindi (gölge boyu 2 katı) yaklaşık 45 dakika daha geç çıkar ve Diyanet takviminden farklıdır.
+  CalculationParameters _prayerCalcParams() {
+    return CalculationMethod.turkey.getParameters()..madhab = Madhab.shafi;
+  }
+
   void _calculatePrayerTimes(Coordinates coordinates) {
-    final params = CalculationMethod.turkey.getParameters();
-    params.madhab = Madhab.hanafi;
+    final params = _prayerCalcParams();
     
     final pTimes = PrayerTimes.today(coordinates, params);
     setState(() {
@@ -1432,8 +1437,7 @@ class _MainScreenState extends State<MainScreen> {
     if (coords == null) return;
     await _cancelAzanReminders();
 
-    final params = CalculationMethod.turkey.getParameters();
-    params.madhab = Madhab.hanafi;
+    final params = _prayerCalcParams();
     final now = DateTime.now();
     var id = 0;
     for (var day = 0; day < 7; day++) {
@@ -1860,8 +1864,7 @@ class _MainScreenState extends State<MainScreen> {
 
     if (nextPrayer == Prayer.none || nextPrayerTime == null) {
       final tomorrow = DateTime.now().add(const Duration(days: 1));
-      final params = CalculationMethod.turkey.getParameters();
-      params.madhab = Madhab.hanafi;
+      final params = _prayerCalcParams();
       final tomorrowTimes = PrayerTimes(activeCoordinates!, DateComponents(tomorrow.year, tomorrow.month, tomorrow.day), params);
       
       nextPrayer = Prayer.fajr;
@@ -1909,8 +1912,7 @@ class _MainScreenState extends State<MainScreen> {
       final timeline = <Map<String, Object>>[];
       final coordinates = activeCoordinates;
       if (coordinates != null) {
-        final params = CalculationMethod.turkey.getParameters();
-        params.madhab = Madhab.hanafi;
+        final params = _prayerCalcParams();
         // Keep upcoming prayers available while the app is closed.
         for (var day = 0; day < 7; day++) {
           final date = DateTime(now.year, now.month, now.day + day);
