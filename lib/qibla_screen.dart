@@ -7,6 +7,7 @@ import 'package:flutter_qiblah/flutter_qiblah.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'ad_banner.dart';
 import 'l10n.dart';
 import 'qibla_compass.dart';
 import 'qibla_geometry.dart';
@@ -475,6 +476,7 @@ class _QiblaScreenState extends State<QiblaScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    bottomNavigationBar: const SafeArea(child: Center(heightFactor: 1, child: AdBanner())),
     appBar: AppBar(
       title: Text(t('Kıble Yönü', 'Qibla Direction')),
       backgroundColor: const Color(0xFF6DAF89),

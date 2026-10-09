@@ -29,6 +29,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'text_zoom.dart';
 import 'onboarding_screen.dart';
 import 'qibla_screen.dart';
+import 'ad_banner.dart';
 import 'figures.dart';
 import 'app_theme.dart';
 export 'qibla_compass.dart' show QiblaCompass;
@@ -2644,7 +2645,17 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: _buildAudioBar(context),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildAudioBar(context),
+          // Reklam, ses düğmelerinin altında ve onlardan boşlukla ayrılmış durur.
+          Material(
+            color: Theme.of(context).colorScheme.surface,
+            child: const SafeArea(top: false, child: Center(child: AdBanner())),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -2711,6 +2722,7 @@ class _MainScreenState extends State<MainScreen> {
       elevation: 8,
       child: SafeArea(
         top: false,
+        bottom: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Column(
@@ -2985,6 +2997,9 @@ class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
                 ),
               ),
             ),
+            // Sayaç düğmesine hızlı basıldığı için reklam en altta, düğmeden uzakta durur.
+            const SizedBox(height: 24),
+            const AdBanner(),
           ],
           ),
         ),
