@@ -442,7 +442,7 @@ class _MainScreenState extends State<MainScreen> {
     _cities.sort();
     // Önce kayıtlı şehirle hesapla; konum izni verilmiş ve internet varsa konumu bulup güncelle.
     _loadSavedCity().then((_) {
-      if (mounted) _findLocationInBackground(silent: true);
+      if (mounted) _autoLocate();
     });
     _initAyah();
     
@@ -913,25 +913,33 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  /// [silent] açılışta kullanılır: izin istemez, mesaj göstermez; yalnızca konum izni zaten
-  /// verilmişse, konum servisi açıksa ve internet varsa konumu bulup hesapları günceller.
-  Future<void> _findLocationInBackground({bool silent = false}) async {
-    if (silent) {
-      try {
-        if (!await Geolocator.isLocationServiceEnabled()) return;
-        final granted = await Geolocator.checkPermission();
-        if (granted != LocationPermission.whileInUse && granted != LocationPermission.always) return;
-        if (!await hasInternet()) return;
-      } catch (_) {
-        return;
-      }
-      if (!mounted || isLocating) return;
+  /// Konumdan şehir bulur. Şehir adını bulmak internet ister; yoksa koordinata en yakın şehre düşülür.
+  Future<({String city, bool geocoded})> _cityForPosition(Position position) async {
+    List<Placemark> placemarks = [];
+    try {
+      placemarks = await placemarkFromCoordinates(position.latitude, position.longitude)
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {}
+    final geocoded = placemarks.isNotEmpty;
+    final place = geocoded ? placemarks[0] : null;
+    String foundCity = place == null
+        ? _nearestCity(position.latitude, position.longitude)
+        : (place.administrativeArea ?? place.locality ?? "İstanbul");
+
+    // "Istanbul Province" gibi İngilizce yanıtlardaki "Province" kelimesini at.
+    if (foundCity.toLowerCase().contains("province")) {
+      foundCity = foundCity.split(" ")[0];
     }
 
-    void notify(String message) {
-      if (!silent) _showSnackBar(message);
-    }
+    // Kendi şehir listemizle eşleştir.
+    final matched = _cities.firstWhere(
+      (c) => c.toLowerCase() == foundCity.toLowerCase(),
+      orElse: () => "İstanbul",
+    );
+    return (city: matched, geocoded: geocoded);
+  }
 
+  Future<void> _findLocationInBackground() async {
     setState(() {
       isLocating = true;
     });
@@ -942,7 +950,7 @@ class _MainScreenState extends State<MainScreen> {
 
       serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        notify(t("Konum servisleri kapalı.", "Location services are turned off."));
+        _showSnackBar(t("Konum servisleri kapalı.", "Location services are turned off."));
         setState(() => isLocating = false);
         return;
       }
@@ -951,65 +959,40 @@ class _MainScreenState extends State<MainScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          notify(t("Konum izni reddedildi.", "Location permission was denied."));
+          _showSnackBar(t("Konum izni reddedildi.", "Location permission was denied."));
           setState(() => isLocating = false);
           return;
         }
       }
-      
+
       if (permission == LocationPermission.deniedForever) {
-        notify(t("Konum izni kalıcı olarak reddedildi.", "Location permission was permanently denied."));
+        _showSnackBar(t("Konum izni kalıcı olarak reddedildi.", "Location permission was permanently denied."));
         setState(() => isLocating = false);
         return;
-      } 
+      }
 
-      Position position = await Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.medium,
           timeLimit: Duration(seconds: 20),
         ),
       );
-      
-      // Şehir adını bulmak internet ister; yoksa koordinata en yakın şehre düşülür.
-      List<Placemark> placemarks = [];
-      try {
-        placemarks = await placemarkFromCoordinates(position.latitude, position.longitude)
-            .timeout(const Duration(seconds: 8));
-      } catch (_) {}
-      final geocoded = placemarks.isNotEmpty;
-      {
-        final place = geocoded ? placemarks[0] : null;
-        String foundCity = place == null
-            ? _nearestCity(position.latitude, position.longitude)
-            : (place.administrativeArea ?? place.locality ?? "İstanbul");
-        
-        // Clean up "Province" word from English locale responses e.g. "Istanbul Province"
-        if (foundCity.toLowerCase().contains("province")) {
-          foundCity = foundCity.split(" ")[0];
-        }
+      final found = await _cityForPosition(position);
 
-        // Match with our city list
-        String matchedCity = _cities.firstWhere(
-          (c) => c.toLowerCase() == foundCity.toLowerCase(),
-          orElse: () => "İstanbul"
-        );
-
-        setState(() {
-          currentCity = matchedCity;
-          activeCoordinates = Coordinates(position.latitude, position.longitude);
-        });
-
-        await _saveCity(matchedCity);
-        _calculatePrayerTimes(activeCoordinates!);
-        notify(geocoded
-            ? t("$matchedCity konumu bulundu.", "Location found: $matchedCity.")
-            : t(
-                "İnternet yok: konumuna en yakın şehir seçildi ($matchedCity). Daha doğru sonuç için mobil veriyi veya Wi-Fi'ı aç.",
-                "No internet: the nearest city was selected ($matchedCity). Turn on mobile data or Wi-Fi for a more accurate result.",
-              ));
-      }
+      setState(() {
+        currentCity = found.city;
+        activeCoordinates = Coordinates(position.latitude, position.longitude);
+      });
+      await _saveCity(found.city);
+      _calculatePrayerTimes(activeCoordinates!);
+      _showSnackBar(found.geocoded
+          ? t("${found.city} konumu bulundu.", "Location found: ${found.city}.")
+          : t(
+              "İnternet yok: konumuna en yakın şehir seçildi (${found.city}). Daha doğru sonuç için mobil veriyi veya Wi-Fi'ı aç.",
+              "No internet: the nearest city was selected (${found.city}). Turn on mobile data or Wi-Fi for a more accurate result.",
+            ));
     } catch (e) {
-      notify(e is TimeoutException
+      _showSnackBar(e is TimeoutException
           ? t(
               "Konum alınamadı. Açık bir alana çıkıp konum servisinin açık olduğundan emin ol.",
               "Could not get a location fix. Move to an open area and make sure location services are on.",
@@ -1021,6 +1004,86 @@ class _MainScreenState extends State<MainScreen> {
           isLocating = false;
         });
       }
+    }
+  }
+
+  bool _autoLocating = false;
+
+  /// Açılışta arka planda çalışır; ekranda hiçbir şey göstermez (yükleme çarkı, mesaj yok) ve
+  /// uygulamayı bekletmez. İzin istemez; yalnızca izin zaten verilmişse, konum servisi açıksa ve
+  /// internet varsa devam eder. İnternet yoksa son seçili şehirle açık kalınır.
+  ///
+  /// Bulunan şehir mevcut şehirle aynıysa yalnızca koordinat inceltilir. Farklıysa kullanıcıya
+  /// sorulur; "Kalsın" denirse aynı şehir için bir daha sorulmaz.
+  Future<void> _autoLocate() async {
+    if (_autoLocating || isLocating) return;
+    _autoLocating = true;
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse && permission != LocationPermission.always) return;
+      if (!await hasInternet()) return;
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 20),
+        ),
+      );
+      final found = await _cityForPosition(position);
+      if (!mounted) return;
+
+      if (found.city == currentCity) {
+        // Aynı şehir: sadece konumu inceltip yeniden hesapla.
+        setState(() {
+          activeCoordinates = Coordinates(position.latitude, position.longitude);
+        });
+        _calculatePrayerTimes(activeCoordinates!);
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString('declined_location_city') == found.city) return;
+      if (!mounted) return;
+
+      final switchCity = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(t("Konumun değişmiş görünüyor", "Your location seems to have changed")),
+          content: Text(t(
+            "Şu an ${found.city} civarındasın, ama vakitler $currentCity için hesaplanıyor. Vakitleri ${found.city} konumuna göre güncelleyelim mi?",
+            "You appear to be near ${found.city}, but prayer times are calculated for $currentCity. Update them for ${found.city}?",
+          )),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(t("$currentCity kalsın", "Keep $currentCity")),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(t("${found.city} yap", "Use ${found.city}")),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+
+      if (switchCity == true) {
+        setState(() {
+          currentCity = found.city;
+          activeCoordinates = Coordinates(position.latitude, position.longitude);
+        });
+        await _saveCity(found.city);
+        await prefs.remove('declined_location_city');
+        _calculatePrayerTimes(activeCoordinates!);
+      } else if (switchCity == false) {
+        await prefs.setString('declined_location_city', found.city);
+      }
+    } catch (e) {
+      // Arka plan işlemi: hata olursa sessizce kayıtlı şehirle devam edilir.
+      debugPrint("Otomatik konum bulunamadı: $e");
+    } finally {
+      _autoLocating = false;
     }
   }
 
