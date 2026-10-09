@@ -494,6 +494,12 @@ class _MainScreenState extends State<MainScreen> {
         }
       });
     }
+    if (!kIsWeb && Platform.isIOS) {
+      // Ekran kilitliyken ve arka planda çalmaya devam etsin (Info.plist: UIBackgroundModes audio).
+      audioPlayer!.setAudioContext(AudioContext(
+        iOS: AudioContextIOS(category: AVAudioSessionCategory.playback),
+      ));
+    }
     audioPlayer!.onPlayerStateChanged.listen((state) {
       _quranPlaying = state == PlayerState.playing;
       _syncPlaying();
