@@ -2882,6 +2882,8 @@ class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
           padding: const EdgeInsets.all(24),
           child: Column(
           children: [
+            // Reklam üstte durur: sürekli basılan büyük "BAS" düğmesinden en uzak nokta burasıdır.
+            const AdBanner(bottomGap: 8),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 28),
@@ -2997,9 +2999,6 @@ class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
                 ),
               ),
             ),
-            // Sayaç düğmesine hızlı basıldığı için reklam en altta, düğmeden uzakta durur.
-            const SizedBox(height: 24),
-            const AdBanner(),
           ],
           ),
         ),

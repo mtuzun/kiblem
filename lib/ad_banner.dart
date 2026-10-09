@@ -13,7 +13,10 @@ const String _contentBannerIos = 'ca-app-pub-9864338488985680/1910065110';
 /// hiç yer kaplamaz. Üstte ve altta küçük bir boşluk bırakır; sayfalardaki düğmelere
 /// yanlışlıkla dokunulmasın diye bu boşluğu azaltmayın.
 class AdBanner extends StatefulWidget {
-  const AdBanner({super.key});
+  /// Reklam yüklendiğinde altına eklenen ek boşluk (reklam yoksa boşluk da yoktur).
+  final double bottomGap;
+
+  const AdBanner({super.key, this.bottomGap = 0});
 
   @override
   State<AdBanner> createState() => _AdBannerState();
@@ -55,7 +58,7 @@ class _AdBannerState extends State<AdBanner> {
     final ad = _ad;
     if (!_loaded || ad == null) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.fromLTRB(0, 8, 0, 8 + widget.bottomGap),
       child: SizedBox(
         width: ad.size.width.toDouble(),
         height: ad.size.height.toDouble(),
