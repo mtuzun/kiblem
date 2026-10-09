@@ -53,7 +53,20 @@ class PrayerAlarm {
   /// true: ses 1 dakika boyunca tekrar eder. false: ses dosyası bir kez çalar, bitince alarm susar.
   bool oneMinute;
 
-  PrayerAlarm({this.enabled = false, this.minutes = 15, this.soundUri, this.soundTitle, this.oneMinute = false});
+  /// false: vakitten [minutes] dakika önce; true: vakitten [minutes] dakika sonra.
+  bool after;
+
+  PrayerAlarm({
+    this.enabled = false,
+    this.minutes = 15,
+    this.soundUri,
+    this.soundTitle,
+    this.oneMinute = false,
+    this.after = false,
+  });
+
+  /// Alarmın vakte göre kayma süresi (önce için negatif, sonra için pozitif).
+  Duration get offset => Duration(minutes: after ? minutes : -minutes);
 }
 
 final GlobalKey qiblaButtonKey = GlobalKey();
@@ -1209,6 +1222,7 @@ class _MainScreenState extends State<MainScreen> {
         soundUri: prefs.getString('alarm_${i}_sound_uri') ?? legacyUri,
         soundTitle: prefs.getString('alarm_${i}_sound_title') ?? legacyTitle,
         oneMinute: prefs.getBool('alarm_${i}_one_minute') ?? false,
+        after: prefs.getBool('alarm_${i}_after') ?? false,
       ),
     );
     if (!mounted) return;
@@ -1227,6 +1241,7 @@ class _MainScreenState extends State<MainScreen> {
     await prefs.setBool('alarm_${i}_enabled', a.enabled);
     await prefs.setInt('alarm_${i}_minutes', a.minutes);
     await prefs.setBool('alarm_${i}_one_minute', a.oneMinute);
+    await prefs.setBool('alarm_${i}_after', a.after);
     if (a.soundUri != null) {
       await prefs.setString('alarm_${i}_sound_uri', a.soundUri!);
     }
@@ -1396,30 +1411,61 @@ class _MainScreenState extends State<MainScreen> {
     await _scheduleAzanReminders();
   }
 
-  Future<void> _setAlarmMinutes(int i, int minutes) async {
+  Future<void> _setAlarmMinutes(int i, int minutes, bool after) async {
     setState(() {
       prayerAlarms[i].minutes = minutes;
+      prayerAlarms[i].after = after;
     });
     await _savePrayerAlarm(i);
     await _scheduleAzanReminders();
   }
 
+  /// Vakitten önce / sonra seçimi ve süre. Küçük ekranlarda kaydırılabilir.
   Future<void> _pickAlarmMinutes(int i) async {
-    final picked = await showDialog<int>(
+    var after = prayerAlarms[i].after;
+    final picked = await showDialog<(int, bool)>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(t("Ne kadar önce uyarılsın?", "How long before?")),
-        children: [
-          for (final m in _alarmMinuteOptions)
-            ListTile(
-              title: Text(_minutesLabel(m)),
-              trailing: prayerAlarms[i].minutes == m ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.pop(context, m),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => SimpleDialog(
+          title: Text(t("Vakitten önce mi, sonra mı?", "Before or after prayer time?")),
+          contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 16),
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<bool>(
+                  showSelectedIcon: false,
+                  segments: [
+                    ButtonSegment(value: false, label: Text(t("Önce", "Before"))),
+                    ButtonSegment(value: true, label: Text(t("Sonra", "After"))),
+                  ],
+                  selected: {after},
+                  onSelectionChanged: (s) => setDialogState(() => after = s.first),
+                ),
+              ),
             ),
-        ],
+            if (i == 1)
+              ListTile(
+                leading: const Icon(Icons.wb_twilight),
+                title: Text(t("Işrak vakti (kerahet bitimi)", "Ishraq time (end of makruh)")),
+                subtitle: Text(t("Güneşten 45 dk. sonra", "45 min after sunrise")),
+                trailing: prayerAlarms[i].after && prayerAlarms[i].minutes == 45 ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, (45, true)),
+              ),
+            for (final m in _alarmMinuteOptions)
+              ListTile(
+                title: Text(_minutesLabel(m, after)),
+                trailing: prayerAlarms[i].minutes == m && (m == 0 || prayerAlarms[i].after == after)
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(context, (m, after)),
+              ),
+          ],
+        ),
       ),
     );
-    if (picked != null) await _setAlarmMinutes(i, picked);
+    if (picked != null) await _setAlarmMinutes(i, picked.$1, picked.$2);
   }
 
   String _durationLabel(PrayerAlarm a) =>
@@ -1456,8 +1502,10 @@ class _MainScreenState extends State<MainScreen> {
 
   static const List<int> _alarmMinuteOptions = [0, 1, 5, 10, 15, 20, 30, 45, 60];
 
-  String _minutesLabel(int m) =>
-      m == 0 ? t("Vaktinde", "On time") : t("${m}dk. önce", "$m min before");
+  String _minutesLabel(int m, [bool after = false]) {
+    if (m == 0) return t("Vaktinde", "On time");
+    return after ? t("${m}dk. sonra", "$m min after") : t("${m}dk. önce", "$m min before");
+  }
 
   String _alarmLabel(int i) {
     const tr = ["İmsaktan", "Güneşten", "Öğleden", "İkindiden", "Akşamdan", "Yatsıdan"];
@@ -1489,7 +1537,7 @@ class _MainScreenState extends State<MainScreen> {
     for (var i = 0; i < _prayerAlarmCount; i++) {
       final alarm = prayerAlarms[i];
       if (!alarm.enabled) continue;
-      final reminderTime = _prayerTimeAt(prayerTimes!, i).subtract(Duration(minutes: alarm.minutes));
+      final reminderTime = _prayerTimeAt(prayerTimes!, i).add(alarm.offset);
       if (reminderTime.isBefore(DateTime.now())) continue;
 
       final prayerName = _getPrayerName(_prayerFromIndex(i));
@@ -1499,7 +1547,9 @@ class _MainScreenState extends State<MainScreen> {
         'prayerName': prayerName,
         'title': alarm.minutes == 0
             ? t("$prayerName Vakti", "$prayerName time")
-            : t("$prayerName vaktine ${alarm.minutes} dakika kaldı", "${alarm.minutes} minutes until $prayerName"),
+            : alarm.after
+                ? t("$prayerName vaktinden ${alarm.minutes} dakika geçti", "${alarm.minutes} minutes after $prayerName")
+                : t("$prayerName vaktine ${alarm.minutes} dakika kaldı", "${alarm.minutes} minutes until $prayerName"),
         'body': t(
           "Durdurmak için dokunun",
           "Tap to stop",
@@ -1549,7 +1599,7 @@ class _MainScreenState extends State<MainScreen> {
       for (var i = 0; i < _prayerAlarmCount; i++) {
         final alarm = prayerAlarms[i];
         if (!alarm.enabled) continue;
-        final at = _prayerTimeAt(times, i).subtract(Duration(minutes: alarm.minutes));
+        final at = _prayerTimeAt(times, i).add(alarm.offset);
         if (at.isBefore(now)) continue;
         final name = _getPrayerName(_prayerFromIndex(i));
         await flutterLocalNotificationsPlugin.zonedSchedule(
@@ -1569,13 +1619,20 @@ class _MainScreenState extends State<MainScreen> {
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
           title: alarm.minutes == 0
               ? t("$name vakti geldi", "It's $name time")
-              : t("$name vakti yaklaşıyor", "$name time is approaching"),
+              : alarm.after
+                  ? t("$name vaktinden ${alarm.minutes} dakika geçti", "${alarm.minutes} minutes after $name")
+                  : t("$name vakti yaklaşıyor", "$name time is approaching"),
           body: alarm.minutes == 0
               ? t("Namaz vakti girdi.", "Prayer time has begun.")
-              : t(
-                  "Namaz vaktine ${alarm.minutes} dakika kaldı.",
-                  "${alarm.minutes} minutes until prayer time.",
-                ),
+              : alarm.after
+                  ? t(
+                      "Vaktin girmesinden ${alarm.minutes} dakika geçti.",
+                      "${alarm.minutes} minutes have passed since prayer time.",
+                    )
+                  : t(
+                      "Namaz vaktine ${alarm.minutes} dakika kaldı.",
+                      "${alarm.minutes} minutes until prayer time.",
+                    ),
         );
       }
     }
@@ -1687,7 +1744,7 @@ class _MainScreenState extends State<MainScreen> {
                       },
                       child: Padding(
                         padding: const EdgeInsets.all(6),
-                        child: Text(_minutesLabel(alarm.minutes), style: linkStyle),
+                        child: Text(_minutesLabel(alarm.minutes, alarm.after), style: linkStyle),
                       ),
                     ),
                     if (!_isIos)
@@ -1738,7 +1795,7 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             _settingsSection(
               context,
-              t("Vakitlerden Önce Uyarılar", "Alerts Before Prayer Times"),
+              t("Vakit Uyarıları", "Prayer Time Alerts"),
               [
                 if (!_isIos) ...[
                   const SizedBox(height: 8),
