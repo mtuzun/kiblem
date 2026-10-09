@@ -282,6 +282,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   BannerAd? _bannerAd;
+  int _bannerAttempt = 0;
+  Timer? _bannerRetryTimer;
   bool _isBannerAdLoaded = false;
 
   List<PrayerAlarm> prayerAlarms = List.generate(_prayerAlarmCount, (_) => PrayerAlarm());
@@ -567,6 +569,7 @@ class _MainScreenState extends State<MainScreen> {
     if (_audioServiceRunning && !kIsWeb && Platform.isAndroid) {
       ringtoneChannel.invokeMethod('stopAudioService').catchError((_) {});
     }
+    _bannerRetryTimer?.cancel();
     _bannerAd?.dispose();
     super.dispose();
   }
@@ -589,7 +592,15 @@ class _MainScreenState extends State<MainScreen> {
         },
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
+          _bannerAd = null;
           debugPrint("Banner reklam yüklenemedi: $error");
+          // Doldurma yoksa birkaç kez, giderek uzayan aralıklarla yeniden dene.
+          if (_bannerAttempt < 3) {
+            _bannerAttempt++;
+            _bannerRetryTimer = Timer(Duration(seconds: 60 * _bannerAttempt), () {
+              if (mounted) _loadBannerAd();
+            });
+          }
         },
       ),
     )..load();

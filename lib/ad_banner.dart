@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,10 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 /// Ana ekranın banner'ı ayrı bir birim kullanır.
 const String _contentBannerAndroid = 'ca-app-pub-9864338488985680/1558711322';
 const String _contentBannerIos = 'ca-app-pub-9864338488985680/1910065110';
+
+/// Reklam yüklenemezse (doldurma yoksa) birkaç kez, giderek uzayan aralıklarla yeniden denenir.
+const int _maxRetries = 3;
+Duration _retryDelay(int attempt) => Duration(seconds: 60 * attempt);
 
 /// İnce (320x50) bir banner. Reklam yüklenemezse ya da platform desteklemiyorsa (web, masaüstü)
 /// hiç yer kaplamaz. Üstte ve altta küçük bir boşluk bırakır; sayfalardaki düğmelere
@@ -25,11 +30,17 @@ class AdBanner extends StatefulWidget {
 class _AdBannerState extends State<AdBanner> {
   BannerAd? _ad;
   bool _loaded = false;
+  int _attempt = 0;
+  Timer? _retryTimer;
 
   @override
   void initState() {
     super.initState();
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    _load();
+  }
+
+  void _load() {
     _ad = BannerAd(
       adUnitId: Platform.isIOS ? _contentBannerIos : _contentBannerAndroid,
       size: AdSize.banner,
@@ -42,6 +53,12 @@ class _AdBannerState extends State<AdBanner> {
           ad.dispose();
           _ad = null;
           debugPrint('İçerik banner reklamı yüklenemedi: $error');
+          if (_attempt < _maxRetries) {
+            _attempt++;
+            _retryTimer = Timer(_retryDelay(_attempt), () {
+              if (mounted) _load();
+            });
+          }
         },
       ),
     )..load();
@@ -49,6 +66,7 @@ class _AdBannerState extends State<AdBanner> {
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
     _ad?.dispose();
     super.dispose();
   }
