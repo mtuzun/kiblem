@@ -28,48 +28,50 @@ class _FridayBannerState extends State<FridayBanner> {
     const gold = Color(0xFFF1D58A);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF0F4D3A), Color(0xFF1B6B53), Color(0xFF0F4D3A)],
+      // Afişe dokunmak onu bu oturum için kapatır.
+      child: GestureDetector(
+        onTap: () => setState(() => FridayBanner.dismissedThisSession = true),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            height: 64,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF0F4D3A),
+                  Color(0xFF1B6B53),
+                  Color(0xFF0F4D3A),
+                ],
+              ),
+              border: Border.all(
+                color: gold.withValues(alpha: 0.8),
+                width: 1.2,
+              ),
+              borderRadius: BorderRadius.circular(14),
             ),
-            border: Border.all(color: gold.withValues(alpha: 0.8), width: 1.2),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned.fill(child: CustomPaint(painter: _MotifPainter(gold))),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 48),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    widget.text,
-                    style: const TextStyle(
-                      color: gold,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  child: CustomPaint(painter: _MotifPainter(gold)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 66),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.text,
+                      style: const TextStyle(
+                        color: gold,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                right: 0,
-                top: 0,
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  icon: Icon(Icons.close, color: gold.withValues(alpha: 0.8)),
-                  onPressed: () =>
-                      setState(() => FridayBanner.dismissedThisSession = true),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
