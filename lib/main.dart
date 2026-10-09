@@ -440,7 +440,10 @@ class _MainScreenState extends State<MainScreen> {
     colorThemeNotifier.addListener(_onAppearanceChanged);
     figureNotifier.addListener(_onAppearanceChanged);
     _cities.sort();
-    _loadSavedCity();
+    // Önce kayıtlı şehirle hesapla; konum izni verilmiş ve internet varsa konumu bulup güncelle.
+    _loadSavedCity().then((_) {
+      if (mounted) _findLocationInBackground(silent: true);
+    });
     _initAyah();
     
     audioPlayer = AudioPlayer();
@@ -910,7 +913,25 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _findLocationInBackground() async {
+  /// [silent] açılışta kullanılır: izin istemez, mesaj göstermez; yalnızca konum izni zaten
+  /// verilmişse, konum servisi açıksa ve internet varsa konumu bulup hesapları günceller.
+  Future<void> _findLocationInBackground({bool silent = false}) async {
+    if (silent) {
+      try {
+        if (!await Geolocator.isLocationServiceEnabled()) return;
+        final granted = await Geolocator.checkPermission();
+        if (granted != LocationPermission.whileInUse && granted != LocationPermission.always) return;
+        if (!await hasInternet()) return;
+      } catch (_) {
+        return;
+      }
+      if (!mounted || isLocating) return;
+    }
+
+    void notify(String message) {
+      if (!silent) _showSnackBar(message);
+    }
+
     setState(() {
       isLocating = true;
     });
@@ -921,7 +942,7 @@ class _MainScreenState extends State<MainScreen> {
 
       serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        _showSnackBar(t("Konum servisleri kapalı.", "Location services are turned off."));
+        notify(t("Konum servisleri kapalı.", "Location services are turned off."));
         setState(() => isLocating = false);
         return;
       }
@@ -930,14 +951,14 @@ class _MainScreenState extends State<MainScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          _showSnackBar(t("Konum izni reddedildi.", "Location permission was denied."));
+          notify(t("Konum izni reddedildi.", "Location permission was denied."));
           setState(() => isLocating = false);
           return;
         }
       }
       
       if (permission == LocationPermission.deniedForever) {
-        _showSnackBar(t("Konum izni kalıcı olarak reddedildi.", "Location permission was permanently denied."));
+        notify(t("Konum izni kalıcı olarak reddedildi.", "Location permission was permanently denied."));
         setState(() => isLocating = false);
         return;
       } 
@@ -980,7 +1001,7 @@ class _MainScreenState extends State<MainScreen> {
 
         await _saveCity(matchedCity);
         _calculatePrayerTimes(activeCoordinates!);
-        _showSnackBar(geocoded
+        notify(geocoded
             ? t("$matchedCity konumu bulundu.", "Location found: $matchedCity.")
             : t(
                 "İnternet yok: konumuna en yakın şehir seçildi ($matchedCity). Daha doğru sonuç için mobil veriyi veya Wi-Fi'ı aç.",
@@ -988,16 +1009,18 @@ class _MainScreenState extends State<MainScreen> {
               ));
       }
     } catch (e) {
-      _showSnackBar(e is TimeoutException
+      notify(e is TimeoutException
           ? t(
               "Konum alınamadı. Açık bir alana çıkıp konum servisinin açık olduğundan emin ol.",
               "Could not get a location fix. Move to an open area and make sure location services are on.",
             )
           : t("Konum alınırken hata oluştu.", "Could not get your location."));
     } finally {
-      setState(() {
-        isLocating = false;
-      });
+      if (mounted) {
+        setState(() {
+          isLocating = false;
+        });
+      }
     }
   }
 
