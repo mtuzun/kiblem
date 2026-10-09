@@ -760,10 +760,17 @@ class _MainScreenState extends State<MainScreen> {
       final available = await tts.isLanguageAvailable(lang);
       if (available != true && available != 1) {
         isAutoPlaying = false;
-        _showAudioNotice(t(
-          "Telefonunda ${meal == 'english' ? 'İngilizce' : 'Türkçe'} sesli okuma bulunamadı. Telefon ayarlarından \"Metin okuma\" için ${meal == 'english' ? 'İngilizce' : 'Türkçe'} ses paketini indir.",
-          "No ${meal == 'english' ? 'English' : 'Turkish'} text-to-speech voice was found. Install one in your phone's \"Text-to-speech\" settings.",
-        ));
+        final langTr = meal == 'english' ? 'İngilizce' : 'Türkçe';
+        final langEn = meal == 'english' ? 'English' : 'Turkish';
+        _showAudioNotice(_isIos
+            ? t(
+                "iPhone'unda $langTr ses bulunamadı. Ayarlar > Erişilebilirlik > Seslendirilen İçerik > Sesler bölümünden $langTr bir ses indir.",
+                "No $langEn voice was found on your iPhone. Download one in Settings > Accessibility > Spoken Content > Voices.",
+              )
+            : t(
+                "Telefonunda $langTr sesli okuma bulunamadı. Telefon ayarlarından \"Metin okuma\" için $langTr ses paketini indir.",
+                "No $langEn text-to-speech voice was found. Install one in your phone's \"Text-to-speech\" settings.",
+              ));
         _syncPlaying();
         return;
       }
@@ -1355,6 +1362,9 @@ class _MainScreenState extends State<MainScreen> {
         await flutterLocalNotificationsPlugin.zonedSchedule(
           id: id++,
           scheduledDate: tz.TZDateTime.from(at, tz.local),
+          // Ses verilmediği için iOS'un varsayılan bildirim sesi çalar. Üçüncü taraf uygulamalar
+          // sistem zil sesini ya da alarm sesini kullanamaz; özel ses ancak uygulama paketine
+          // eklenen (en fazla 30 sn.) bir dosyayla mümkündür.
           notificationDetails: const NotificationDetails(
             iOS: DarwinNotificationDetails(
               presentAlert: true,
@@ -1459,13 +1469,15 @@ class _MainScreenState extends State<MainScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 16, color: textColor),
                 ),
-                if (!_isIos)
-                  Text(
-                    alarm.soundTitle ?? t("Varsayılan", "Default"),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
-                  ),
+                Text(
+                  // iOS'ta uygulamalar sistem zil sesini kullanamaz; varsayılan bildirim sesi çalar.
+                  _isIos
+                      ? t("Varsayılan ses", "Default sound")
+                      : (alarm.soundTitle ?? t("Varsayılan", "Default")),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
+                ),
               ],
             ),
           ),
