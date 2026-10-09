@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'figures.dart';
 import 'l10n.dart';
+import 'weather.dart';
 
 // ---------------------------------------------------------------------------
 // Tema: arka plan, sayaç stili ve vakit düzeni birlikte seçilir.
@@ -505,20 +506,26 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white70),
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(s.city, style: const TextStyle(color: Colors.white, fontSize: 16)),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-                    ],
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.white70),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(s.city, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Align(alignment: Alignment.centerRight, child: WeatherStrip(theme: theme))),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 CountdownView(theme: theme, s: s),

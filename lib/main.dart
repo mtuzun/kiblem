@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'friday_banner.dart';
+import 'weather.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -232,6 +233,8 @@ class _MainScreenState extends State<MainScreen> {
   bool _mealAfterQuran = false;
   bool get isPlaying => audioPlayingNotifier.value;
 
+  /// Hava durumunun en son yenilendiği ayın günü; gün değişince yeniden çekilir.
+  int _weatherDay = 0;
   bool _audioServiceRunning = false;
   Timer? _audioServiceStopTimer;
 
@@ -523,6 +526,10 @@ class _MainScreenState extends State<MainScreen> {
     _loadAudioPrefs();
     
     timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
+      if (_weatherDay != 0 && _weatherDay != DateTime.now().day && activeCoordinates != null) {
+        // Gün değişti: vakitler ve hava durumu yenilenir.
+        _calculatePrayerTimes(activeCoordinates!);
+      }
       _updateTimeLeft();
       setState((){}); // forces build to update the top-right clock directly
     });
@@ -1179,6 +1186,8 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       prayerTimes = pTimes;
     });
+    _weatherDay = DateTime.now().day;
+    refreshWeather(coordinates.latitude, coordinates.longitude);
     _updateTimeLeft();
     if (azanReminderEnabled) {
       _scheduleAzanReminders();
@@ -1964,6 +1973,13 @@ class _MainScreenState extends State<MainScreen> {
                     showCoachMarks.value = true;
                   },
                 ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    t("Hava durumu verisi: $weatherAttribution", "Weather data: $weatherAttribution"),
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ),
               ],
             ),
           ],
@@ -2169,10 +2185,12 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
+                  Flexible(
+                    flex: 0,
+                    child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white70),
@@ -2200,6 +2218,15 @@ class _MainScreenState extends State<MainScreen> {
                           _calculatePrayerTimesForCity(newValue);
                         }
                       },
+                    ),
+                  ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Hava durumu: her temada şehir kutusunun sağında, temaya uygun görünümle.
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: WeatherStrip(theme: appThemeById(themeNotifier.value)),
                     ),
                   ),
                 ],
