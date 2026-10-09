@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:ui' as ui;
-import 'dart:math' show pi, cos, sin, Random;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show MethodChannel;
@@ -12,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -29,18 +29,33 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'text_zoom.dart';
 import 'onboarding_screen.dart';
 import 'qibla_screen.dart';
+import 'figures.dart';
+import 'app_theme.dart';
 export 'qibla_compass.dart' show QiblaCompass;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 const MethodChannel ringtoneChannel = MethodChannel('com.metint.kiblem/ringtone');
 
+/// İmsak, Güneş, Öğle, İkindi, Akşam, Yatsı.
+const int _prayerAlarmCount = 6;
+
+/// Bir vakit için alarm ayarı: açık/kapalı, kaç dakika önce, hangi ses.
+class PrayerAlarm {
+  bool enabled;
+  int minutes;
+  String? soundUri;
+  String? soundTitle;
+
+  PrayerAlarm({this.enabled = false, this.minutes = 15, this.soundUri, this.soundTitle});
+}
+
 final GlobalKey qiblaButtonKey = GlobalKey();
 final GlobalKey prayerListKey = GlobalKey();
 final GlobalKey dailyAyahKey = GlobalKey();
 final GlobalKey dailyHadithKey = GlobalKey();
 final GlobalKey dailyTabsKey = GlobalKey();
-// Dar ekranda açık sekme: 0 = Günün Ayeti, 1 = Günün Hadisi.
+// Dar ekranda açık sekme: 0 = Günün Ayeti, 1 = Vaktin Hadisi.
 final ValueNotifier<int> dailyTabNotifier = ValueNotifier<int>(1);
 final GlobalKey zikirButtonKey = GlobalKey();
 final GlobalKey settingsButtonKey = GlobalKey();
@@ -77,6 +92,9 @@ void main() async {
     (m) => m.name == prefs.getString('theme_mode'),
     orElse: () => ThemeMode.system,
   );
+  themeNotifier.value = appThemeById(prefs.getString('app_theme')).id;
+  colorThemeNotifier.value = paletteById(prefs.getString('color_theme')).id;
+  figureNotifier.value = figureById(prefs.getString('app_figure')).id;
   await loadSavedLanguage();
   await loadSavedTextZoom();
   unawaited(OfflineQuran.init());
@@ -197,15 +215,29 @@ class _MainScreenState extends State<MainScreen> {
   int? displayedAyahNumber;
   
   AudioPlayer? audioPlayer;
-  bool isPlaying = false;
   bool isAutoPlaying = false;
+
+  // Ses: Kur'an okunuşu (internetten), meal (telefonun sesli okuması / TTS) veya ikisi sırayla.
+  final FlutterTts tts = FlutterTts();
+  final ValueNotifier<String> audioModeNotifier = ValueNotifier('quran'); // quran | meal | both
+  final ValueNotifier<String> audioMealNotifier = ValueNotifier('diyanet'); // diyanet | yazir | english
+  final ValueNotifier<bool> audioPlayingNotifier = ValueNotifier(false);
+  bool _quranPlaying = false;
+  bool _ttsSpeaking = false;
+  bool _mealAfterQuran = false;
+  bool get isPlaying => audioPlayingNotifier.value;
+
+  void _syncPlaying() {
+    audioPlayingNotifier.value = _quranPlaying || _ttsSpeaking || _mealAfterQuran;
+  }
 
   BannerAd? _bannerAd;
   bool _isBannerAdLoaded = false;
 
-  bool azanReminderEnabled = false;
-  int azanReminderMinutes = 15;
-  String? azanSoundTitle;
+  List<PrayerAlarm> prayerAlarms = List.generate(_prayerAlarmCount, (_) => PrayerAlarm());
+  bool get azanReminderEnabled => prayerAlarms.any((a) => a.enabled);
+  // 'fullscreen': çalan tam ekran alarm, 'notification': sadece sesli bildirim.
+  String alarmMode = 'fullscreen';
   String? _lastWidgetKey;
 
   int get _dailyTab => dailyTabNotifier.value;
@@ -218,11 +250,12 @@ class _MainScreenState extends State<MainScreen> {
   final ValueNotifier<String?> audioNotice = ValueNotifier(null);
   Timer? _audioNoticeTimer;
 
-  void _showAudioNotice() {
-    audioNotice.value = t(
-      "Sesli okunuş için internet gerekiyor. Lütfen mobil veriyi veya Wi-Fi'ı aç.",
-      "Audio recitation needs an internet connection. Please turn on mobile data or Wi-Fi.",
-    );
+  void _showAudioNotice([String? message]) {
+    audioNotice.value = message ??
+        t(
+          "Sesli okunuş için internet gerekiyor. Lütfen mobil veriyi veya Wi-Fi'ı aç.",
+          "Audio recitation needs an internet connection. Please turn on mobile data or Wi-Fi.",
+        );
     _audioNoticeTimer?.cancel();
     _audioNoticeTimer = Timer(const Duration(seconds: 6), () => audioNotice.value = null);
   }
@@ -374,6 +407,11 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _onAppearanceChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   void _onLangChanged() {
     if (!mounted) return;
     setState(() {});
@@ -381,7 +419,6 @@ class _MainScreenState extends State<MainScreen> {
     if (azanReminderEnabled) _scheduleAzanReminders();
   }
 
-  int? _hadithIndex;
 
   final List<String> _cities = [
     'Adana', 'Adıyaman', 'Afyonkarahisar', 'Ağrı', 'Amasya', 'Ankara', 'Antalya', 'Artvin', 'Aydın', 'Balıkesir', 
@@ -399,29 +436,34 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     dailyTabNotifier.addListener(_onDailyTabChanged);
     langNotifier.addListener(_onLangChanged);
+    themeNotifier.addListener(_onAppearanceChanged);
+    colorThemeNotifier.addListener(_onAppearanceChanged);
+    figureNotifier.addListener(_onAppearanceChanged);
     _cities.sort();
     _loadSavedCity();
-    _loadDailyHadith();
     _initAyah();
     
     audioPlayer = AudioPlayer();
     audioPlayer!.onPlayerStateChanged.listen((state) {
-      if (mounted) {
-        setState(() {
-          isPlaying = state == PlayerState.playing;
-        });
-      }
+      _quranPlaying = state == PlayerState.playing;
+      _syncPlaying();
     });
     audioPlayer!.onPlayerComplete.listen((event) {
-      if (mounted) {
-        setState(() {
-          isPlaying = false;
-        });
-        if (isAutoPlaying) {
-          _nextAyah();
-        }
+      _quranPlaying = false;
+      if (!mounted) return;
+      if (_mealAfterQuran) {
+        // "İkisi de" seçiliyse Kur'an bitince aynı ayetin meali okunur.
+        _mealAfterQuran = false;
+        _speakMeal();
+        return;
+      }
+      _syncPlaying();
+      if (isAutoPlaying) {
+        _nextAyah();
       }
     });
+    _initTts();
+    _loadAudioPrefs();
     
     timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTimeLeft();
@@ -438,8 +480,12 @@ class _MainScreenState extends State<MainScreen> {
     _audioNoticeTimer?.cancel();
     dailyTabNotifier.removeListener(_onDailyTabChanged);
     langNotifier.removeListener(_onLangChanged);
+    themeNotifier.removeListener(_onAppearanceChanged);
+    colorThemeNotifier.removeListener(_onAppearanceChanged);
+    figureNotifier.removeListener(_onAppearanceChanged);
     timer?.cancel();
     audioPlayer?.dispose();
+    tts.stop();
     _bannerAd?.dispose();
     super.dispose();
   }
@@ -571,9 +617,9 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _fetchAyah(int ayahNumber) async {
     setState(() => isLoadingAyah = true);
     if (isPlaying) {
-      audioPlayer?.stop();
+      _stopAllAudio();
     }
-    
+
     await OfflineQuran.initFuture;
     final offlineAyah = OfflineQuran.getAyah(ayahNumber);
     if (offlineAyah != null) {
@@ -639,17 +685,134 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _playOnlyAudio() async {
-    if (audioPlayer == null || dailyAyahData == null) return;
-    final audioUrl = dailyAyahData!['audioUrl'];
-    if (audioUrl != null) {
-      if (!await hasInternet()) {
+  void _playOnlyAudio() => _startAyahAudio();
+
+  Future<void> _initTts() async {
+    tts.setCompletionHandler(() {
+      _ttsSpeaking = false;
+      _syncPlaying();
+      if (mounted && isAutoPlaying) _nextAyah();
+    });
+    tts.setCancelHandler(() {
+      _ttsSpeaking = false;
+      _syncPlaying();
+    });
+    tts.setErrorHandler((_) {
+      _ttsSpeaking = false;
+      _syncPlaying();
+    });
+    try {
+      await tts.setSpeechRate(0.45);
+    } catch (_) {}
+  }
+
+  Future<void> _loadAudioPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString('audio_mode');
+    final meal = prefs.getString('audio_meal');
+    if (mode == 'quran' || mode == 'meal' || mode == 'both') audioModeNotifier.value = mode!;
+    if (meal == 'diyanet' || meal == 'yazir' || meal == 'english') audioMealNotifier.value = meal!;
+  }
+
+  Future<void> _setAudioMode(String mode) async {
+    await _stopAllAudio();
+    isAutoPlaying = false;
+    audioModeNotifier.value = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('audio_mode', mode);
+  }
+
+  Future<void> _setAudioMeal(String meal) async {
+    await _stopAllAudio();
+    isAutoPlaying = false;
+    audioMealNotifier.value = meal;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('audio_meal', meal);
+  }
+
+  Future<void> _stopAllAudio() async {
+    _mealAfterQuran = false;
+    try {
+      await audioPlayer?.stop();
+      await tts.stop();
+    } catch (_) {}
+    _quranPlaying = false;
+    _ttsSpeaking = false;
+    _syncPlaying();
+  }
+
+  /// Seçili mealı telefonun sesli okuma özelliğiyle okutur.
+  Future<void> _speakMeal() async {
+    final data = dailyAyahData;
+    if (data == null) {
+      _syncPlaying();
+      return;
+    }
+    final meal = audioMealNotifier.value;
+    final key = meal == 'yazir' ? 'turkish2' : (meal == 'english' ? 'english' : 'turkish1');
+    final text = (data[key] as String?)?.trim() ?? '';
+    if (text.isEmpty) {
+      _syncPlaying();
+      return;
+    }
+    final lang = meal == 'english' ? 'en-US' : 'tr-TR';
+    try {
+      final available = await tts.isLanguageAvailable(lang);
+      if (available != true && available != 1) {
         isAutoPlaying = false;
-        _showAudioNotice();
+        _showAudioNotice(t(
+          "Telefonunda ${meal == 'english' ? 'İngilizce' : 'Türkçe'} sesli okuma bulunamadı. Telefon ayarlarından \"Metin okuma\" için ${meal == 'english' ? 'İngilizce' : 'Türkçe'} ses paketini indir.",
+          "No ${meal == 'english' ? 'English' : 'Turkish'} text-to-speech voice was found. Install one in your phone's \"Text-to-speech\" settings.",
+        ));
+        _syncPlaying();
         return;
       }
-      await audioPlayer!.play(UrlSource(audioUrl));
+      await tts.setLanguage(lang);
+      _ttsSpeaking = true;
+      _syncPlaying();
+      await tts.speak(text);
+    } catch (e) {
+      debugPrint("TTS ERROR: $e");
+      _ttsSpeaking = false;
+      _syncPlaying();
     }
+  }
+
+  /// Kur'an okunuşunun adresi. Web'de cdn.islamic.network tarayıcının CORS engeline takıldığı
+  /// için aynı hafızın (Mişarî el-Afâsî) sesini CORS izinli everyayah.com'dan alırız.
+  String? _quranAudioUrl(Map<String, dynamic> data) {
+    final n = displayedAyahNumber;
+    if (kIsWeb && n != null) {
+      final surahIndex = _getSurahIndex(n);
+      final surah = (surahIndex + 1).toString().padLeft(3, '0');
+      final ayah = (n - _surahStarts[surahIndex] + 1).toString().padLeft(3, '0');
+      return 'https://everyayah.com/data/Alafasy_128kbps/$surah$ayah.mp3';
+    }
+    return data['audioUrl'] as String?;
+  }
+
+  /// Seçime göre bu ayetin sesini başlatır: yalnız Kur'an, yalnız meal ya da önce Kur'an sonra meal.
+  Future<void> _startAyahAudio() async {
+    final data = dailyAyahData;
+    if (audioPlayer == null || data == null) return;
+    final mode = audioModeNotifier.value;
+    if (mode == 'meal') {
+      await _speakMeal();
+      return;
+    }
+    final audioUrl = _quranAudioUrl(data);
+    if (audioUrl == null) {
+      if (mode == 'both') await _speakMeal();
+      return;
+    }
+    if (!await hasInternet()) {
+      isAutoPlaying = false;
+      _showAudioNotice();
+      return;
+    }
+    _mealAfterQuran = mode == 'both';
+    _syncPlaying();
+    await audioPlayer!.play(UrlSource(audioUrl));
   }
 
   void _nextAyah() {
@@ -727,20 +890,13 @@ class _MainScreenState extends State<MainScreen> {
 
   void _toggleAudio() async {
     if (audioPlayer == null || dailyAyahData == null) return;
-    final audioUrl = dailyAyahData!['audioUrl'];
-    if (audioUrl == null) return;
-    
     if (isPlaying) {
       isAutoPlaying = false;
-      await audioPlayer!.stop();
+      await _stopAllAudio();
     } else {
-      if (!await hasInternet()) {
-        _showAudioNotice();
-        return;
-      }
       isAutoPlaying = true;
       try {
-        await audioPlayer!.play(UrlSource(audioUrl));
+        await _startAyahAudio();
       } catch (e) {
         debugPrint("AUDIO PLAY ERROR: $e");
       }
@@ -874,26 +1030,114 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _loadAzanReminderSetting() async {
     final prefs = await SharedPreferences.getInstance();
-    final enabled = prefs.getBool('azan_reminder_enabled') ?? false;
+    // Eski tek-alarm ayarlarını ilk açılışta her vakte aktar.
+    final legacyEnabled = prefs.getBool('azan_reminder_enabled') ?? false;
+    final legacyMinutes = prefs.getInt('azan_reminder_minutes') ?? 15;
+    final legacyUri = prefs.getString('azan_sound_uri');
+    final legacyTitle = prefs.getString('azan_sound_title');
+    final loaded = List.generate(
+      _prayerAlarmCount,
+      (i) => PrayerAlarm(
+        enabled: prefs.getBool('alarm_${i}_enabled') ?? (legacyEnabled && i != 1),
+        minutes: prefs.getInt('alarm_${i}_minutes') ?? legacyMinutes,
+        soundUri: prefs.getString('alarm_${i}_sound_uri') ?? legacyUri,
+        soundTitle: prefs.getString('alarm_${i}_sound_title') ?? legacyTitle,
+      ),
+    );
+    if (!mounted) return;
     setState(() {
-      azanReminderEnabled = enabled;
-      azanReminderMinutes = prefs.getInt('azan_reminder_minutes') ?? 15;
-      azanSoundTitle = prefs.getString('azan_sound_title');
+      prayerAlarms = loaded;
+      alarmMode = prefs.getString('alarm_mode') == 'notification' ? 'notification' : 'fullscreen';
     });
-    if (enabled && prayerTimes != null) {
+    if (azanReminderEnabled && prayerTimes != null) {
       _scheduleAzanReminders();
     }
   }
 
-  Future<void> _pickAzanSound() async {
-    if (kIsWeb || !Platform.isAndroid) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final currentUri = prefs.getString('azan_sound_uri');
+  Future<void> _savePrayerAlarm(int i) async {
+    final prefs = await SharedPreferences.getInstance();
+    final a = prayerAlarms[i];
+    await prefs.setBool('alarm_${i}_enabled', a.enabled);
+    await prefs.setInt('alarm_${i}_minutes', a.minutes);
+    if (a.soundUri != null) {
+      await prefs.setString('alarm_${i}_sound_uri', a.soundUri!);
+    }
+    if (a.soundTitle != null) {
+      await prefs.setString('alarm_${i}_sound_title', a.soundTitle!);
+    }
+  }
 
+  Future<void> _pickAlarmSound(int i) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.music_note_outlined),
+              title: Text(t("Zil sesi seç", "Choose ringtone")),
+              onTap: () => Navigator.pop(context, 'ringtone'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_outlined),
+              title: Text(t("Dosyadan seç", "Choose from file")),
+              subtitle: Text(t("Telefondaki bir ses dosyası (ör. mp3)", "An audio file on your phone (e.g. mp3)")),
+              onTap: () => Navigator.pop(context, 'file'),
+            ),
+            if (prayerAlarms[i].soundUri != null)
+              ListTile(
+                leading: const Icon(Icons.restart_alt),
+                title: Text(t("Varsayılan sese dön", "Reset to default")),
+                onTap: () => Navigator.pop(context, 'reset'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (source == 'ringtone') {
+      await _pickRingtoneSound(i);
+    } else if (source == 'file') {
+      await _pickFileSound(i);
+    } else if (source == 'reset') {
+      setState(() {
+        prayerAlarms[i].soundUri = null;
+        prayerAlarms[i].soundTitle = null;
+      });
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('alarm_${i}_sound_uri');
+      await prefs.remove('alarm_${i}_sound_title');
+      await _scheduleAzanReminders();
+    }
+  }
+
+  Future<void> _pickFileSound(int i) async {
+    try {
+      final picked = await ringtoneChannel.invokeMethod<Map<Object?, Object?>>('pickAudioFile');
+      if (picked == null) return;
+      final uri = picked['uri'] as String?;
+      if (uri == null) return;
+      if (!mounted) return;
+      setState(() {
+        prayerAlarms[i].soundUri = uri;
+        prayerAlarms[i].soundTitle = (picked['title'] as String?) ?? t('Özel Ses', 'Custom sound');
+      });
+      await _savePrayerAlarm(i);
+      await _scheduleAzanReminders();
+    } catch (e) {
+      debugPrint("Ses dosyası seçilemedi: $e");
+    }
+  }
+
+  Future<void> _pickRingtoneSound(int i) async {
+    try {
       final pickedUri = await ringtoneChannel.invokeMethod<String>(
         'pickRingtone',
-        {'currentUri': currentUri, 'title': t('Ezan Sesi Seç', 'Choose Azan Sound')},
+        {
+          'currentUri': prayerAlarms[i].soundUri,
+          'title': t('Alarm Sesi Seç', 'Choose Alarm Sound'),
+        },
       );
       if (pickedUri == null) return;
 
@@ -903,80 +1147,138 @@ class _MainScreenState extends State<MainScreen> {
           ) ??
           t('Özel Ses', 'Custom sound');
 
-      await ringtoneChannel.invokeMethod('setChannelSound', {'uri': pickedUri});
-      await prefs.setString('azan_sound_uri', pickedUri);
-      await prefs.setString('azan_sound_title', title);
-
       if (!mounted) return;
       setState(() {
-        azanSoundTitle = title;
+        prayerAlarms[i].soundUri = pickedUri;
+        prayerAlarms[i].soundTitle = title;
       });
-    } catch (e) {
-      debugPrint("Ezan sesi seçilemedi: $e");
-    }
-  }
-
-  Future<void> _setAzanReminderEnabled(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('azan_reminder_enabled', value);
-    setState(() {
-      azanReminderEnabled = value;
-    });
-
-    if (value) {
-      final androidPlugin = flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
-      await androidPlugin?.requestNotificationsPermission();
-
-      if (_isIos) {
-        final iosPlugin = flutterLocalNotificationsPlugin
-            .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
-        final granted = await iosPlugin?.requestPermissions(alert: true, sound: true);
-        if (granted == false && mounted) {
-          _showSnackBar(t(
-            "Bildirim izni verilmedi. Hatırlatıcı için Ayarlar'dan bildirimlere izin ver.",
-            "Notification permission was not granted. Allow notifications in Settings for the reminder.",
-          ));
-        }
-      }
-
-      if (!kIsWeb && Platform.isAndroid) {
-        final canScheduleExact = await ringtoneChannel.invokeMethod<bool>('canScheduleExactAlarms') ?? true;
-        if (!canScheduleExact && mounted) {
-          await showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: Text(t('İzin Gerekli', 'Permission Required')),
-              content: Text(t(
-                'Ezan hatırlatıcısının tam zamanında çalabilmesi için "Alarmlar ve Hatırlatıcılar" iznini açman gerekiyor. Açılan ayarlar ekranından bu uygulamaya izin ver.',
-                'To ring exactly on time, the azan reminder needs the "Alarms & reminders" permission. Please allow it for this app in the settings screen that opens.',
-              )),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(t('Vazgeç', 'Cancel')),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    ringtoneChannel.invokeMethod('requestExactAlarmPermission');
-                  },
-                  child: Text(t('Ayarları Aç', 'Open Settings')),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-
+      await _savePrayerAlarm(i);
       _scheduleAzanReminders();
-    } else {
-      await _cancelAzanReminders();
+    } catch (e) {
+      debugPrint("Alarm sesi seçilemedi: $e");
     }
   }
+
+  Future<void> _requestAlarmPermissions() async {
+    final androidPlugin = flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    await androidPlugin?.requestNotificationsPermission();
+
+    if (_isIos) {
+      final iosPlugin = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+      final granted = await iosPlugin?.requestPermissions(alert: true, sound: true);
+      if (granted == false && mounted) {
+        _showSnackBar(t(
+          "Bildirim izni verilmedi. Hatırlatıcı için Ayarlar'dan bildirimlere izin ver.",
+          "Notification permission was not granted. Allow notifications in Settings for the reminder.",
+        ));
+      }
+    }
+
+    if (!kIsWeb && Platform.isAndroid) {
+      final canScheduleExact = await ringtoneChannel.invokeMethod<bool>('canScheduleExactAlarms') ?? true;
+      if (!canScheduleExact && mounted) {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(t('İzin Gerekli', 'Permission Required')),
+            content: Text(t(
+              'Ezan hatırlatıcısının tam zamanında çalabilmesi için "Alarmlar ve Hatırlatıcılar" iznini açman gerekiyor. Açılan ayarlar ekranından bu uygulamaya izin ver.',
+              'To ring exactly on time, the azan reminder needs the "Alarms & reminders" permission. Please allow it for this app in the settings screen that opens.',
+            )),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(t('Vazgeç', 'Cancel')),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  ringtoneChannel.invokeMethod('requestExactAlarmPermission');
+                },
+                child: Text(t('Ayarları Aç', 'Open Settings')),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _setAlarmEnabled(int i, bool value) async {
+    final wasAnyEnabled = azanReminderEnabled;
+    setState(() {
+      prayerAlarms[i].enabled = value;
+    });
+    await _savePrayerAlarm(i);
+    if (value && !wasAnyEnabled) {
+      await _requestAlarmPermissions();
+    }
+    await _scheduleAzanReminders();
+  }
+
+  Future<void> _setAlarmMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('alarm_mode', mode);
+    setState(() {
+      alarmMode = mode;
+    });
+    await _scheduleAzanReminders();
+  }
+
+  Future<void> _setAlarmMinutes(int i, int minutes) async {
+    setState(() {
+      prayerAlarms[i].minutes = minutes;
+    });
+    await _savePrayerAlarm(i);
+    await _scheduleAzanReminders();
+  }
+
+  Future<void> _pickAlarmMinutes(int i) async {
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(t("Ne kadar önce uyarılsın?", "How long before?")),
+        children: [
+          for (final m in _alarmMinuteOptions)
+            ListTile(
+              title: Text(_minutesLabel(m)),
+              trailing: prayerAlarms[i].minutes == m ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.pop(context, m),
+            ),
+        ],
+      ),
+    );
+    if (picked != null) await _setAlarmMinutes(i, picked);
+  }
+
+  static const List<int> _alarmMinuteOptions = [0, 1, 5, 10, 15, 20, 30, 45, 60];
+
+  String _minutesLabel(int m) =>
+      m == 0 ? t("Vaktinde", "On time") : t("${m}dk. önce", "$m min before");
+
+  String _alarmLabel(int i) {
+    const tr = ["İmsaktan", "Güneşten", "Öğleden", "İkindiden", "Akşamdan", "Yatsıdan"];
+    return isEnglish ? _getPrayerName(_prayerFromIndex(i)) : tr[i];
+  }
+
+  DateTime _prayerTimeAt(PrayerTimes times, int i) => [
+        times.fajr,
+        times.sunrise,
+        times.dhuhr,
+        times.asr,
+        times.maghrib,
+        times.isha,
+      ][i];
 
   Future<void> _scheduleAzanReminders() async {
+    if (kIsWeb) return;
+    if (!azanReminderEnabled) {
+      await _cancelAzanReminders();
+      return;
+    }
     if (prayerTimes == null) return;
     if (_isIos) {
       await _scheduleIosReminders();
@@ -984,50 +1286,38 @@ class _MainScreenState extends State<MainScreen> {
     }
     await _cancelAzanReminders();
 
-    final prayers = <int, DateTime>{
-      0: prayerTimes!.fajr,
-      1: prayerTimes!.dhuhr,
-      2: prayerTimes!.asr,
-      3: prayerTimes!.maghrib,
-      4: prayerTimes!.isha,
-    };
-
-    for (final entry in prayers.entries) {
-      final reminderTime = entry.value.subtract(Duration(minutes: azanReminderMinutes));
+    for (var i = 0; i < _prayerAlarmCount; i++) {
+      final alarm = prayerAlarms[i];
+      if (!alarm.enabled) continue;
+      final reminderTime = _prayerTimeAt(prayerTimes!, i).subtract(Duration(minutes: alarm.minutes));
       if (reminderTime.isBefore(DateTime.now())) continue;
 
-      final prayerName = _getPrayerName(_prayerFromIndex(entry.key));
+      final prayerName = _getPrayerName(_prayerFromIndex(i));
       await ringtoneChannel.invokeMethod('scheduleAzanAlarm', {
-        'id': entry.key,
+        'id': i,
         'triggerAtMillis': reminderTime.millisecondsSinceEpoch,
         'prayerName': prayerName,
-        'title': t("$prayerName Vakti", "$prayerName time"),
+        'title': alarm.minutes == 0
+            ? t("$prayerName Vakti", "$prayerName time")
+            : t("$prayerName vaktine ${alarm.minutes} dakika kaldı", "${alarm.minutes} minutes until $prayerName"),
         'body': t(
-          "Ezan vakti geldi — durdurmak için dokunun",
-          "It's time for the call to prayer — tap to stop",
+          "Durdurmak için dokunun",
+          "Tap to stop",
         ),
         'stopLabel': t("Durdur", "Stop"),
+        'soundUri': alarm.soundUri,
+        'mode': alarmMode,
       });
-    }
-  }
-
-  Future<void> _setAzanReminderMinutes(int minutes) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('azan_reminder_minutes', minutes);
-    setState(() {
-      azanReminderMinutes = minutes;
-    });
-    if (azanReminderEnabled) {
-      _scheduleAzanReminders();
     }
   }
 
   Prayer _prayerFromIndex(int index) {
     switch (index) {
       case 0: return Prayer.fajr;
-      case 1: return Prayer.dhuhr;
-      case 2: return Prayer.asr;
-      case 3: return Prayer.maghrib;
+      case 1: return Prayer.sunrise;
+      case 2: return Prayer.dhuhr;
+      case 3: return Prayer.asr;
+      case 4: return Prayer.maghrib;
       default: return Prayer.isha;
     }
   }
@@ -1056,17 +1346,12 @@ class _MainScreenState extends State<MainScreen> {
     for (var day = 0; day < 7; day++) {
       final date = now.add(Duration(days: day));
       final times = PrayerTimes(coords, DateComponents(date.year, date.month, date.day), params);
-      final prayers = <Prayer, DateTime>{
-        Prayer.fajr: times.fajr,
-        Prayer.dhuhr: times.dhuhr,
-        Prayer.asr: times.asr,
-        Prayer.maghrib: times.maghrib,
-        Prayer.isha: times.isha,
-      };
-      for (final entry in prayers.entries) {
-        final at = entry.value.subtract(Duration(minutes: azanReminderMinutes));
+      for (var i = 0; i < _prayerAlarmCount; i++) {
+        final alarm = prayerAlarms[i];
+        if (!alarm.enabled) continue;
+        final at = _prayerTimeAt(times, i).subtract(Duration(minutes: alarm.minutes));
         if (at.isBefore(now)) continue;
-        final name = _getPrayerName(entry.key);
+        final name = _getPrayerName(_prayerFromIndex(i));
         await flutterLocalNotificationsPlugin.zonedSchedule(
           id: id++,
           scheduledDate: tz.TZDateTime.from(at, tz.local),
@@ -1079,11 +1364,15 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          title: t("$name vakti yaklaşıyor", "$name time is approaching"),
-          body: t(
-            "Namaz vaktine $azanReminderMinutes dakika kaldı.",
-            "$azanReminderMinutes minutes until prayer time.",
-          ),
+          title: alarm.minutes == 0
+              ? t("$name vakti geldi", "It's $name time")
+              : t("$name vakti yaklaşıyor", "$name time is approaching"),
+          body: alarm.minutes == 0
+              ? t("Namaz vakti girdi.", "Prayer time has begun.")
+              : t(
+                  "Namaz vaktine ${alarm.minutes} dakika kaldı.",
+                  "${alarm.minutes} minutes until prayer time.",
+                ),
         );
       }
     }
@@ -1095,189 +1384,372 @@ class _MainScreenState extends State<MainScreen> {
       await flutterLocalNotificationsPlugin.cancelAll();
       return;
     }
-    for (int id = 0; id < 5; id++) {
+    for (int id = 0; id < _prayerAlarmCount; id++) {
       await ringtoneChannel.invokeMethod('cancelAzanAlarm', {'id': id});
     }
   }
 
 
   void _showSettingsDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return ValueListenableBuilder<String>(
-              valueListenable: langNotifier,
-              builder: (context, _, _) => AlertDialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              title: Text(t("Ayarlar", "Settings")),
-              content: SingleChildScrollView(child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(t("Ezan Hatırlatıcısı", "Azan Reminder")),
-                    subtitle: Text(_isIos
-                        ? t("Namaz vaktine $azanReminderMinutes dakika kala sesli bildirim gönder.", "Send a notification with sound $azanReminderMinutes minutes before prayer time.")
-                        : t("Namaz vaktine $azanReminderMinutes dakika kala telefonu çaldır.", "Ring the phone $azanReminderMinutes minutes before prayer time.")),
-                    value: azanReminderEnabled,
-                    onChanged: (value) async {
-                      await _setAzanReminderEnabled(value);
-                      setDialogState(() {});
-                    },
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StatefulBuilder(
+          builder: (context, setPageState) => ValueListenableBuilder<String>(
+            valueListenable: langNotifier,
+            builder: (context, _, _) => _buildSettingsPage(context, setPageState),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsSection(BuildContext context, String? title, List<Widget> children) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+            child: Text(title, style: TextStyle(fontSize: 17, color: cs.onSurfaceVariant)),
+          )
+        else
+          const SizedBox(height: 16),
+        Material(
+          color: cs.surface,
+          elevation: 1,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _alarmRow(BuildContext context, int i, StateSetter setPageState) {
+    final cs = Theme.of(context).colorScheme;
+    final alarm = prayerAlarms[i];
+    final textColor = alarm.enabled ? cs.onSurface : cs.onSurface.withValues(alpha: 0.45);
+    final linkStyle = TextStyle(
+      fontSize: 15,
+      color: textColor,
+      decoration: TextDecoration.underline,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Switch(
+            value: alarm.enabled,
+            onChanged: (value) async {
+              await _setAlarmEnabled(i, value);
+              setPageState(() {});
+            },
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _alarmLabel(i),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 16, color: textColor),
+                ),
+                if (!_isIos)
+                  Text(
+                    alarm.soundTitle ?? t("Varsayılan", "Default"),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
                   ),
-                  if (azanReminderEnabled) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              _isIos
-                                  ? t("Ezana $azanReminderMinutes dakika kala sesli bildirim gelecektir.", "You will get a notification with sound $azanReminderMinutes minutes before prayer time.")
-                                  : t("Ezana $azanReminderMinutes dakika kala telefonun çalar gibi 1 dakika boyunca (durdurana kadar) uyarı verilecektir.", "$azanReminderMinutes minutes before prayer time, your phone will ring like an alarm for 1 minute (until you stop it)."),
-                              style: TextStyle(color: Colors.green[700], fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
-                      child: Row(
-                        children: [
-                          Text(t("Süre:", "Time:"), style: const TextStyle(fontSize: 13)),
-                          Expanded(
-                            child: Slider(
-                              value: azanReminderMinutes.toDouble(),
-                              min: 1,
-                              max: 15,
-                              divisions: 14,
-                              label: t("$azanReminderMinutes dk", "$azanReminderMinutes min"),
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  azanReminderMinutes = value.round();
-                                });
-                              },
-                              onChangeEnd: (value) => _setAzanReminderMinutes(value.round()),
-                            ),
-                          ),
-                          SizedBox(
-                            width: 52,
-                            child: Text(t("$azanReminderMinutes dk", "$azanReminderMinutes min"), style: const TextStyle(fontSize: 13)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (!_isIos)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.music_note_outlined),
-                      title: Text(t("Ezan Sesini Seç", "Choose Azan Sound")),
-                      subtitle: Text(
-                        azanSoundTitle != null
-                            ? t("Seçili ses: $azanSoundTitle", "Selected sound: $azanSoundTitle")
-                            : t("Sadece bu hatırlatıcı için bir ses seç (telefonunun zil/bildirim sesini değiştirmez).", "Pick a sound just for this reminder (your phone's ringtone is not changed)."),
-                      ),
-                      onTap: () async {
-                        await _pickAzanSound();
-                        setDialogState(() {});
-                      },
-                    ),
-                  ],
-                  const Divider(height: 24),
-                  Text(t("Dil", "Language"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              ],
+            ),
+          ),
+          InkWell(
+            onTap: () async {
+              await _pickAlarmMinutes(i);
+              setPageState(() {});
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text(_minutesLabel(alarm.minutes), style: linkStyle),
+            ),
+          ),
+          if (!_isIos)
+            InkWell(
+              onTap: () async {
+                await _pickAlarmSound(i);
+                setPageState(() {});
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(t("Sesi Değiştir", "Change Sound"), style: linkStyle),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsPage(BuildContext context, StateSetter setPageState) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+      appBar: AppBar(
+        title: Text(t("Ayarlar", "Settings")),
+        backgroundColor: cs.surface,
+        scrolledUnderElevation: 1,
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            _settingsSection(
+              context,
+              t("Vakitlerden Önce Uyarılar", "Alerts Before Prayer Times"),
+              [
+                if (!_isIos) ...[
                   const SizedBox(height: 8),
                   SegmentedButton<String>(
                     showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(value: 'tr', label: Text("Türkçe")),
-                      ButtonSegment(value: 'en', label: Text("English")),
+                    segments: [
+                      ButtonSegment(
+                        value: 'notification',
+                        icon: const Icon(Icons.notifications_outlined),
+                        label: Text(t("Bildirim", "Notification")),
+                      ),
+                      ButtonSegment(
+                        value: 'fullscreen',
+                        icon: const Icon(Icons.alarm),
+                        label: Text(t("Tam Ekran Alarm", "Full-screen Alarm")),
+                      ),
                     ],
-                    selected: {langNotifier.value},
-                    onSelectionChanged: (selected) => setLanguage(selected.first),
+                    selected: {alarmMode},
+                    onSelectionChanged: (selected) async {
+                      await _setAlarmMode(selected.first);
+                      setPageState(() {});
+                    },
                   ),
-                  const Divider(height: 24),
-                  Text(t("Yazı Boyutu", "Text Size"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                  ValueListenableBuilder<double?>(
-                    valueListenable: textZoomNotifier,
-                    builder: (context, zoom, _) => Column(
-                      children: [
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          title: Text(t("Otomatik (ekran boyutuna göre)", "Automatic (by screen size)")),
-                          value: zoom == null,
-                          onChanged: (auto) => setTextZoom(auto ? null : 1.0),
-                        ),
-                        if (zoom != null)
-                          Row(
-                            children: [
-                              const Text("A", style: TextStyle(fontSize: 12)),
-                              Expanded(
-                                child: Slider(
-                                  value: zoom,
-                                  min: minTextZoom,
-                                  max: maxTextZoom,
-                                  divisions: 6,
-                                  label: "${(zoom * 100).round()}%",
-                                  onChanged: (v) => textZoomNotifier.value = v,
-                                  onChangeEnd: setTextZoom,
-                                ),
-                              ),
-                              const Text("A", style: TextStyle(fontSize: 22)),
-                            ],
-                          ),
-                      ],
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+                    child: Text(
+                      alarmMode == 'fullscreen'
+                          ? t("Vakitte telefon alarm gibi çalar, kilit ekranında tam ekran açılır (1 dakika veya durdurana kadar).",
+                              "The phone rings like an alarm and opens full-screen over the lock screen (1 minute or until stopped).")
+                          : t("Vakitte seçtiğin zil sesiyle normal bir bildirim gelir.",
+                              "A normal notification arrives with the ringtone you chose."),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
-                  const Divider(height: 24),
-                  Text(t("Görünüm", "Appearance"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                  const SizedBox(height: 8),
-                  ValueListenableBuilder<ThemeMode>(
-                    valueListenable: themeModeNotifier,
-                    builder: (context, mode, _) {
-                      return SegmentedButton<ThemeMode>(
-                        showSelectedIcon: false,
-                        segments: [
-                          ButtonSegment(value: ThemeMode.light, label: Text(t("Açık", "Light"))),
-                          ButtonSegment(value: ThemeMode.dark, label: Text(t("Koyu", "Dark"))),
-                          ButtonSegment(value: ThemeMode.system, label: Text(t("Sistem", "System"))),
-                        ],
-                        selected: {mode},
-                        onSelectionChanged: (selected) => setThemeMode(selected.first),
-                      );
-                    },
-                  ),
-                  const Divider(height: 24),
-                  _buildOfflineTile(),
-                  const Divider(height: 24),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.play_circle_outline),
-                    title: Text(t("Uygulama Tanıtımını Göster", "Show App Tour")),
-                    onTap: () {
-                      Navigator.pop(context);
-                      showCoachMarks.value = true;
-                    },
-                  ),
+                  const Divider(height: 1),
                 ],
-              )),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(t("Kapat", "Close")),
+                for (var i = 0; i < _prayerAlarmCount; i++) ...[
+                  _alarmRow(context, i, setPageState),
+                  if (i < _prayerAlarmCount - 1) const Divider(height: 1),
+                ],
+              ],
+            ),
+            _settingsSection(
+              context,
+              t("Dil", "Language"),
+              [
+                const SizedBox(height: 4),
+                SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: 'tr', label: Text("Türkçe")),
+                    ButtonSegment(value: 'en', label: Text("English")),
+                  ],
+                  selected: {langNotifier.value},
+                  onSelectionChanged: (selected) => setLanguage(selected.first),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+            _settingsSection(
+              context,
+              t("Yazı Boyutu", "Text Size"),
+              [
+                ValueListenableBuilder<double?>(
+                  valueListenable: textZoomNotifier,
+                  builder: (context, zoom, _) => Column(
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(t("Otomatik (ekran boyutuna göre)", "Automatic (by screen size)")),
+                        value: zoom == null,
+                        onChanged: (auto) => setTextZoom(auto ? null : 1.0),
+                      ),
+                      if (zoom != null)
+                        Row(
+                          children: [
+                            const Text("A", style: TextStyle(fontSize: 12)),
+                            Expanded(
+                              child: Slider(
+                                value: zoom,
+                                min: minTextZoom,
+                                max: maxTextZoom,
+                                divisions: 6,
+                                label: "${(zoom * 100).round()}%",
+                                onChanged: (v) => textZoomNotifier.value = v,
+                                onChangeEnd: setTextZoom,
+                              ),
+                            ),
+                            const Text("A", style: TextStyle(fontSize: 22)),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
-            );
-          },
-        );
-      },
+            _settingsSection(
+              context,
+              t("Görünüm", "Appearance"),
+              [
+                const SizedBox(height: 4),
+                ValueListenableBuilder<ThemeMode>(
+                  valueListenable: themeModeNotifier,
+                  builder: (context, mode, _) {
+                    return SegmentedButton<ThemeMode>(
+                      showSelectedIcon: false,
+                      segments: [
+                        ButtonSegment(value: ThemeMode.light, label: Text(t("Açık", "Light"))),
+                        ButtonSegment(value: ThemeMode.dark, label: Text(t("Koyu", "Dark"))),
+                        ButtonSegment(value: ThemeMode.system, label: Text(t("Sistem", "System"))),
+                      ],
+                      selected: {mode},
+                      onSelectionChanged: (selected) => setThemeMode(selected.first),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+            _settingsSection(
+              context,
+              t("Tema", "Theme"),
+              [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.palette_outlined),
+                  title: Text(t(appThemeById(themeNotifier.value).tr, appThemeById(themeNotifier.value).en)),
+                  subtitle: Text(t("Tema seçmek için dokun", "Tap to choose a theme")),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _showThemePicker,
+                ),
+              ],
+            ),
+            _settingsSection(
+              context,
+              t("Klasik Tema Rengi", "Classic Theme Color"),
+              [
+                const SizedBox(height: 8),
+                ValueListenableBuilder<String>(
+                  valueListenable: colorThemeNotifier,
+                  builder: (context, selected, _) => Wrap(
+                    spacing: 14,
+                    runSpacing: 12,
+                    children: [
+                      for (final p in appPalettes)
+                        Tooltip(
+                          message: t(p.tr, p.en),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => setColorTheme(p.id),
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: p.hue == null ? null : p.swatch,
+                                gradient: p.hue == null
+                                    ? const SweepGradient(colors: [
+                                        Color(0xFFB57EDC), Color(0xFF6DAF89), Color(0xFF6C9BD1),
+                                        Color(0xFFE59A5B), Color(0xFFD97B9F), Color(0xFFB57EDC),
+                                      ])
+                                    : null,
+                                border: Border.all(
+                                  color: selected == p.id ? Theme.of(context).colorScheme.onSurface : Colors.transparent,
+                                  width: 3,
+                                ),
+                              ),
+                              child: selected == p.id
+                                  ? const Icon(Icons.check, color: Colors.white)
+                                  : (p.hue == null
+                                      ? const Icon(Icons.auto_awesome, color: Colors.white, size: 20)
+                                      : null),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  t("\"Otomatik\" seçiliyken renk her gün değişir.", "With \"Automatic\" the color changes every day."),
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+            _settingsSection(
+              context,
+              t("Figür", "Figure"),
+              [
+                const SizedBox(height: 8),
+                ValueListenableBuilder<String>(
+                  valueListenable: figureNotifier,
+                  builder: (context, selected, _) => Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final f in appFigures)
+                        ChoiceChip(
+                          avatar: f.id == 'none'
+                              ? const Icon(Icons.block, size: 18)
+                              : SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CustomPaint(
+                                    painter: FigurePainter(f.id, color: Theme.of(context).colorScheme.onSurface),
+                                  ),
+                                ),
+                          label: Text(t(f.tr, f.en)),
+                          selected: selected == f.id,
+                          onSelected: (_) => setFigure(f.id),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+            _settingsSection(
+              context,
+              null,
+              [
+                _buildOfflineTile(),
+                const Divider(height: 24),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.play_circle_outline),
+                  title: Text(t("Uygulama Tanıtımını Göster", "Show App Tour")),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showCoachMarks.value = true;
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1382,16 +1854,12 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dayOfYear = DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
-    // Base hue based on day of year (0-360)
-    final baseHue = (dayOfYear * (360 / 365)) % 360;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = HSLColor.fromAHSL(1.0, baseHue, 0.4, isDark ? 0.28 : 0.6).toColor();
+    final theme = appThemeById(themeNotifier.value);
 
     return Scaffold(
-      backgroundColor: backgroundColor,
-      body: CustomPaint(
-        painter: MotifPainter(dayOfYear),
+      backgroundColor: Colors.black,
+      body: ThemeBackground(
+        theme: theme,
         child: SafeArea(
           child: Column(
             children: [
@@ -1441,6 +1909,7 @@ class _MainScreenState extends State<MainScreen> {
                   },
                 ),
               ),
+              _buildBottomMenu(),
               if (_isBannerAdLoaded && _bannerAd != null)
                 SizedBox(
                   width: _bannerAd!.size.width.toDouble(),
@@ -1454,6 +1923,10 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Widget _buildFigure() {
+    return CustomPaint(size: const Size(150, 150), painter: FigurePainter(figureNotifier.value));
+  }
+
   Widget _buildHeader() {
     return Stack(
       children: [
@@ -1462,7 +1935,7 @@ class _MainScreenState extends State<MainScreen> {
           bottom: 0,
           child: Opacity(
             opacity: 0.2,
-            child: Icon(Icons.mosque, size: 150, color: Colors.white),
+            child: _buildFigure(),
           ),
         ),
         Padding(
@@ -1470,9 +1943,8 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                runSpacing: 4,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
@@ -1504,87 +1976,12 @@ class _MainScreenState extends State<MainScreen> {
                       },
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: isLocating
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Icon(Icons.my_location, color: Colors.white),
-                    onPressed: isLocating ? null : _findLocationInBackground,
-                    tooltip: t("Mevcut Konumu Bul", "Find My Location"),
-                  ),
-                  IconButton(
-                    key: qiblaButtonKey,
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.explore, color: Colors.white),
-                    tooltip: t("Kıble Yönü", "Qibla Direction"),
-                    onPressed: () {
-                      if (kIsWeb) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(t('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.', 'The qibla compass is not supported in web browsers. Please try it on mobile.'))),
-                        );
-                        return;
-                      }
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const QiblaScreen()));
-                    },
-                  ),
-                  IconButton(
-                    key: zikirButtonKey,
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.timer, color: Colors.white),
-                    tooltip: t("Zikirmatik / Sayaç", "Dhikr Counter"),
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => const ZikirmatikDialog(),
-                      );
-                    },
-                  ),
-                  IconButton(
-                    key: settingsButtonKey,
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.settings, color: Colors.white),
-                    tooltip: t("Ayarlar", "Settings"),
-                    onPressed: _showSettingsDialog,
-                  ),
                 ],
               ),
               const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Flexible(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            t("$nextPrayerName vaktine kalan süre", "Time until $nextPrayerName"),
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            timeLeft,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _buildClockNode(),
-                ],
+              SizedBox(
+                width: double.infinity,
+                child: CountdownView(theme: appThemeById(themeNotifier.value), s: _homeSnapshot()),
               ),
             ],
           ),
@@ -1593,18 +1990,61 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildClockNode() {
-    final now = DateTime.now();
-    final dateStr = "${now.day.toString().padLeft(2, '0')} ${shortMonth(now.month)} ${now.year}";
-    final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(dateStr, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 2),
-        Text(timeStr, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-      ],
+  Widget _buildBottomMenu() {
+    return Material(
+      color: Colors.white,
+      elevation: 8,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            IconButton(
+              icon: isLocating
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black87, strokeWidth: 2))
+                  : const Icon(Icons.my_location_outlined, size: 30, color: Colors.black87),
+              tooltip: t("Mevcut Konumu Bul", "Find My Location"),
+              onPressed: isLocating ? null : _findLocationInBackground,
+            ),
+            IconButton(
+              key: qiblaButtonKey,
+              icon: const Icon(Icons.explore_outlined, size: 30, color: Colors.black87),
+              tooltip: t("Kıble Yönü", "Qibla Direction"),
+              onPressed: () {
+                if (kIsWeb) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(t('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.', 'The qibla compass is not supported in web browsers. Please try it on mobile.'))),
+                  );
+                  return;
+                }
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const QiblaScreen()));
+              },
+            ),
+            IconButton(
+              key: zikirButtonKey,
+              icon: const Icon(Icons.timer_outlined, size: 30, color: Colors.black87),
+              tooltip: t("Zikirmatik / Sayaç", "Dhikr Counter"),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ZikirmatikScreen()),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.palette_outlined, size: 30, color: Colors.black87),
+              tooltip: t("Tema", "Theme"),
+              onPressed: _showThemePicker,
+            ),
+            IconButton(
+              key: settingsButtonKey,
+              icon: const Icon(Icons.settings_outlined, size: 30, color: Colors.black87),
+              tooltip: t("Ayarlar", "Settings"),
+              onPressed: _showSettingsDialog,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1780,7 +2220,7 @@ class _MainScreenState extends State<MainScreen> {
             children: [
               tab(t("Ayet-i Kerime", "Quran Verse"), 0),
               const SizedBox(width: 8),
-              tab(t("Günün Hadisi", "Hadith of the Day"), 1),
+              tab(t("Vaktin Hadisi", "Hadith of the Hour"), 1),
             ],
           ),
         ),
@@ -1823,55 +2263,42 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // İlk açılışta rastgele bir hadisle başlar; her yeni günde sıradaki hadise geçer.
-  // Liste bitince başa döner, yani en eski gösterilen hadis yeniden gösterilir.
-  Future<void> _loadDailyHadith() async {
-    final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now();
-    final today =
-        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-    final savedIndex = prefs.getInt('hadith_index');
-    final savedDate = prefs.getString('hadith_date');
-
-    int index;
-    if (savedIndex == null || savedDate == null) {
-      index = Random().nextInt(hadiths.length);
-    } else if (today.compareTo(savedDate) > 0) {
-      index = (savedIndex + 1) % hadiths.length;
-    } else {
-      index = savedIndex % hadiths.length;
-    }
-
-    if (savedIndex != index || savedDate != today) {
-      await prefs.setInt('hadith_index', index);
-      await prefs.setString('hadith_date', savedDate != null && today.compareTo(savedDate) < 0 ? savedDate : today);
-    }
-    if (mounted) setState(() => _hadithIndex = index);
-  }
-
   String get _hadithCredit => t(
-        "Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri (2022)",
-        "Based on the Turkish text of the Presidency of Religious Affairs (Diyanet), Hadis-i Şerif Metinleri (2022); English translation.",
+        "Türkçe metin kaynaklardan serbest çeviridir. Ayrıntı için kaynak eserlere bakınız.",
+        "Free translation from the cited sources. Please consult the original works for details.",
       );
 
   void _shareHadith(Hadith h) {
     final text = t(
       "${h.text}\n\n"
-          "Kaynak: ${h.source}\n"
-          "(Diyanet İşleri Başkanlığı, Hadis-i Şerif Metinleri)\n\n"
+          "Kaynak: ${h.source}\n\n"
           "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
       "${h.shownText}\n\n"
-          "Source: ${h.shownSource}\n"
-          "(Diyanet, Hadis-i Şerif Metinleri; English translation)\n\n"
+          "Source: ${h.shownSource}\n\n"
           "Shared from the Qibla & Prayer Guide app.",
     );
     SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: _shareOrigin()));
   }
 
+  /// Şu an içinde bulunulan vaktin sırası: 0 imsak … 5 yatsı. Vakitler henüz yoksa null.
+  /// Gece yarısından imsaka kadar yatsı vaktinin devamı sayılır.
+  int? _currentPrayerIndex() {
+    final times = prayerTimes;
+    if (times == null) return null;
+    final now = DateTime.now();
+    for (var i = _prayerAlarmCount - 1; i >= 0; i--) {
+      if (!now.isBefore(_prayerTimeAt(times, i))) return i;
+    }
+    return _prayerAlarmCount - 1;
+  }
+
   Widget _buildDailyHadith() {
-    final index = _hadithIndex;
-    if (index == null) return const SizedBox.shrink();
-    final h = hadiths[index];
+    final prayerIndex = _currentPrayerIndex();
+    if (prayerIndex == null) return const SizedBox.shrink();
+    final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day).difference(DateTime(2024)).inDays;
+    final h = hadithForPrayer(day, prayerIndex);
+    final prayerName = _getPrayerName(_prayerFromIndex(prayerIndex));
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -1885,7 +2312,7 @@ class _MainScreenState extends State<MainScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(t("Günün Hadisi", "Hadith of the Day"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              Text(t("$prayerName Vaktinin Hadisi", "Hadith for $prayerName"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
               IconButton(
                 icon: const Icon(Icons.share, size: 18, color: Colors.grey),
                 padding: EdgeInsets.zero,
@@ -1946,6 +2373,38 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  HomeSnapshot _homeSnapshot() {
+    final now = DateTime.now();
+    final entries = <PrayerEntry>[];
+    if (prayerTimes != null) {
+      final format = DateFormat("HH:mm");
+      Prayer currentP = prayerTimes!.currentPrayer();
+      if (currentP == Prayer.none && now.isAfter(prayerTimes!.isha)) {
+        currentP = Prayer.isha;
+      } else if (currentP == Prayer.none && now.isBefore(prayerTimes!.fajr)) {
+        currentP = Prayer.isha;
+      }
+      for (var i = 0; i < _prayerAlarmCount; i++) {
+        final prayer = _prayerFromIndex(i);
+        entries.add(PrayerEntry(_getPrayerName(prayer), format.format(_prayerTimeAt(prayerTimes!, i)), currentP == prayer));
+      }
+    }
+    return HomeSnapshot(
+      city: currentCity,
+      nextPrayerName: nextPrayerName,
+      timeLeft: timeLeft,
+      now: now,
+      prayers: entries,
+    );
+  }
+
+  void _showThemePicker() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => ThemePickerScreen(snapshot: _homeSnapshot())),
+    );
+  }
+
   Widget _buildPrayerList() {
     if (prayerTimes == null) {
       return const Padding(
@@ -1953,69 +2412,7 @@ class _MainScreenState extends State<MainScreen> {
         child: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
-
-    final format = DateFormat("HH:mm");
-    
-    Prayer currentP = prayerTimes!.currentPrayer();
-    if(currentP == Prayer.none && DateTime.now().isAfter(prayerTimes!.isha)) {
-      currentP = Prayer.isha;
-    } else if (currentP == Prayer.none && DateTime.now().isBefore(prayerTimes!.fajr)) {
-      currentP = Prayer.isha;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20.0),
-      child: Column(
-        children: [
-          _prayerItem(_getPrayerName(Prayer.fajr), format.format(prayerTimes!.fajr), currentP == Prayer.fajr),
-          _prayerItem(_getPrayerName(Prayer.sunrise), format.format(prayerTimes!.sunrise), currentP == Prayer.sunrise),
-          _prayerItem(_getPrayerName(Prayer.dhuhr), format.format(prayerTimes!.dhuhr), currentP == Prayer.dhuhr),
-          _prayerItem(_getPrayerName(Prayer.asr), format.format(prayerTimes!.asr), currentP == Prayer.asr),
-          _prayerItem(_getPrayerName(Prayer.maghrib), format.format(prayerTimes!.maghrib), currentP == Prayer.maghrib),
-          _prayerItem(_getPrayerName(Prayer.isha), format.format(prayerTimes!.isha), currentP == Prayer.isha),
-        ],
-      ),
-    );
-  }
-
-  Widget _prayerItem(String name, String time, bool isActive) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      decoration: BoxDecoration(
-        color: isActive ? const Color(0xFF6DAF89) : Colors.white,
-        borderRadius: BorderRadius.circular(5),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            name,
-            style: TextStyle(
-              fontSize: 15,
-              color: isActive ? Colors.white : Colors.grey[700],
-            ),
-          ),
-          Row(
-            children: [
-              Text(
-                time,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: isActive ? Colors.white : Colors.grey[700],
-                ),
-              ),
-              const SizedBox(width: 40),
-              Icon(
-                isActive ? Icons.check_circle : Icons.history, // placeholder icons
-                size: 20,
-                color: isActive ? Colors.white : Colors.grey[500],
-              ),
-            ],
-          )
-        ],
-      ),
-    );
+    return PrayerTimesView(theme: appThemeById(themeNotifier.value), s: _homeSnapshot());
   }
 
   void _shareAyah(Map<String, dynamic> data) {
@@ -2033,224 +2430,225 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _showAyahDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return ValueListenableBuilder<String>(
-          valueListenable: langNotifier,
-          builder: (context, _, _) => ValueListenableBuilder<Map<String, dynamic>?>(
-          valueListenable: dailyAyahNotifier,
-          builder: (context, dynamicData, child) {
-            if (dynamicData == null) return const SizedBox();
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            final bodyTextColor = isDark ? Colors.grey[300] : Colors.grey[800];
-            final translitColor = isDark ? Colors.green[300] : Colors.green[800];
-            return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Column(
-                        children: [
-                          Text(
-                            "${t("Ayet-i Kerime", "Quran Verse")}\n(${_ayahRef(dynamicData)})", 
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)
-                          ),
-                          const SizedBox(height: 20),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.keyboard_double_arrow_left, size: 26, color: Colors.grey),
-                                onPressed: _prevSurah,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              ),
-                              const SizedBox(width: 25),
-                              IconButton(
-                                icon: const Icon(Icons.arrow_back_ios, size: 22, color: Colors.grey),
-                                onPressed: _prevAyah,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              ),
-                              const SizedBox(width: 40),
-                              IconButton(
-                                icon: const Icon(Icons.arrow_forward_ios, size: 22, color: Colors.grey),
-                                onPressed: _nextAyah,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              ),
-                              const SizedBox(width: 25),
-                              IconButton(
-                                icon: const Icon(Icons.keyboard_double_arrow_right, size: 26, color: Colors.grey),
-                                onPressed: _nextSurah,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 30),
-                      Text(
-                        dynamicData['arabic'],
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 26, fontFamily: 'Amiri', fontWeight: FontWeight.bold, height: 2.0),
-                      ),
-                      if (!isEnglish) ...[
-                        const SizedBox(height: 20),
-                        Text(
-                          dynamicData['transliteration'] ?? '',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
-                        ),
-                        const Divider(height: 30),
-                        const Text("Diyanet İşleri Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
-                        const SizedBox(height: 5),
-                        Text(
-                          dynamicData['turkish1'] ?? '',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
-                        ),
-                        const SizedBox(height: 15),
-                        const Text("Elmalılı Hamdi Yazır Meali", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
-                        const SizedBox(height: 5),
-                        Text(
-                          dynamicData['turkish2'] ?? '',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
-                        ),
-                      ] else
-                        const Divider(height: 30),
-                      const SizedBox(height: 15),
-                      Text(t("English Translation (Sahih Int.)", "Translation (Sahih International)"), textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
-                      const SizedBox(height: 5),
-                      Text(
-                        dynamicData['english'] ?? '',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5),
-                      ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      StreamBuilder<PlayerState>(
-                        stream: audioPlayer?.onPlayerStateChanged,
-                        builder: (context, snapshot) {
-                          final currentIsPlaying = snapshot.data == PlayerState.playing;
-                          return IconButton(
-                            iconSize: 50,
-                            icon: Icon(
-                              currentIsPlaying ? Icons.stop : Icons.play_arrow,
-                              color: currentIsPlaying ? Colors.red : Colors.green,
-                            ),
-                            onPressed: _toggleAudio,
-                          );
-                        }
-                      ),
-                      IconButton(
-                        iconSize: 32,
-                        icon: const Icon(Icons.share, color: Colors.green),
-                        tooltip: t("Paylaş", "Share"),
-                        onPressed: () => _shareAyah(dynamicData),
-                      ),
-                      ElevatedButton(
-                        onPressed: () {
-                          isAutoPlaying = false;
-                          audioPlayer?.stop();
-                          Navigator.of(context).pop();
-                        },
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700]),
-                        child: Text(t("Kapat", "Close"), style: const TextStyle(color: Colors.white)),
-                      ),
-                    ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PopScope(
+          // Sayfa kapanınca ses de durur.
+          onPopInvokedWithResult: (didPop, _) {
+            isAutoPlaying = false;
+            _stopAllAudio();
+          },
+          child: ValueListenableBuilder<String>(
+            valueListenable: langNotifier,
+            builder: (context, _, _) => ValueListenableBuilder<Map<String, dynamic>?>(
+              valueListenable: dailyAyahNotifier,
+              builder: (context, data, _) => _buildAyahScreen(context, data),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAyahScreen(BuildContext context, Map<String, dynamic>? data) {
+    if (data == null) return const Scaffold(body: SizedBox());
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bodyTextColor = isDark ? Colors.grey[300] : Colors.grey[800];
+    final translitColor = isDark ? Colors.green[300] : Colors.green[800];
+
+    Widget heading(String text) => Padding(
+          padding: const EdgeInsets.only(bottom: 5),
+          child: Text(text,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+        );
+    Widget body(String? text) => Text(text ?? '',
+        textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: bodyTextColor, height: 1.5));
+    Widget navButton(IconData icon, double size, VoidCallback onPressed) => IconButton(
+          icon: Icon(icon, size: size, color: Colors.grey),
+          onPressed: onPressed,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(t("Ayet-i Kerime", "Quran Verse")),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share, color: Colors.green),
+            tooltip: t("Paylaş", "Share"),
+            onPressed: () => _shareAyah(data),
+          ),
+        ],
+      ),
+      bottomNavigationBar: _buildAudioBar(context),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          children: [
+            Text(
+              _ayahRef(data),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                navButton(Icons.keyboard_double_arrow_left, 26, _prevSurah),
+                const SizedBox(width: 25),
+                navButton(Icons.arrow_back_ios, 22, _prevAyah),
+                const SizedBox(width: 40),
+                navButton(Icons.arrow_forward_ios, 22, _nextAyah),
+                const SizedBox(width: 25),
+                navButton(Icons.keyboard_double_arrow_right, 26, _nextSurah),
+              ],
+            ),
+            const Divider(height: 30),
+            Text(
+              data['arabic'],
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 26, fontFamily: 'Amiri', fontWeight: FontWeight.bold, height: 2.0),
+            ),
+            if (!isEnglish) ...[
+              const SizedBox(height: 20),
+              Text(
+                data['transliteration'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: translitColor, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+              ),
+              const Divider(height: 30),
+              heading("Diyanet İşleri Meali"),
+              body(data['turkish1']),
+              const SizedBox(height: 15),
+              heading("Elmalılı Hamdi Yazır Meali"),
+              body(data['turkish2']),
+            ] else
+              const Divider(height: 30),
+            const SizedBox(height: 15),
+            heading(t("English Translation (Sahih Int.)", "Translation (Sahih International)")),
+            body(data['english']),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Alttaki ses çubuğu: oynat/durdur, ne dinleneceği (Kur'an / meal / ikisi) ve hangi meal.
+  Widget _buildAudioBar(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final mealLabels = {
+      'diyanet': t("Diyanet", "Diyanet"),
+      'yazir': t("Elmalılı", "Elmalılı"),
+      'english': t("İngilizce (Sahih Int.)", "English (Sahih Int.)"),
+    };
+    return Material(
+      color: cs.surface,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: audioPlayingNotifier,
+                    builder: (context, playing, _) => IconButton(
+                      iconSize: 46,
+                      icon: Icon(playing ? Icons.stop_circle : Icons.play_circle,
+                          color: playing ? Colors.red : Colors.green),
+                      tooltip: playing ? t("Durdur", "Stop") : t("Dinle", "Listen"),
+                      onPressed: _toggleAudio,
+                    ),
                   ),
-                  ValueListenableBuilder<String?>(
-                    valueListenable: audioNotice,
-                    builder: (context, msg, _) => msg == null
-                        ? const SizedBox.shrink()
-                        : Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Text(
-                              msg,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.red, fontSize: 13),
-                            ),
-                          ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: audioModeNotifier,
+                      builder: (context, mode, _) => SegmentedButton<String>(
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                        segments: [
+                          ButtonSegment(value: 'quran', label: Text(t("Kur'an", "Quran"))),
+                          ButtonSegment(value: 'meal', label: Text(t("Meal", "Translation"))),
+                          ButtonSegment(value: 'both', label: Text(t("İkisi", "Both"))),
+                        ],
+                        selected: {mode},
+                        onSelectionChanged: (s) => _setAudioMode(s.first),
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
+              ValueListenableBuilder<String>(
+                valueListenable: audioModeNotifier,
+                builder: (context, mode, _) => mode == 'quran'
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: ValueListenableBuilder<String>(
+                          valueListenable: audioMealNotifier,
+                          builder: (context, meal, _) => Column(
+                            children: [
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  for (final e in mealLabels.entries)
+                                    ChoiceChip(
+                                      label: Text(e.value),
+                                      selected: meal == e.key,
+                                      onSelected: (_) => _setAudioMeal(e.key),
+                                    ),
+                                ],
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  t("Meal, telefonunun sesli okuma özelliğiyle okunur.",
+                                      "The translation is read with your phone's text-to-speech."),
+                                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+              ValueListenableBuilder<String?>(
+                valueListenable: audioNotice,
+                builder: (context, msg, _) => msg == null
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          msg,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red, fontSize: 13),
+                        ),
+                      ),
+              ),
+            ],
           ),
-        );
-          }
         ),
-        );
-      }
+      ),
     );
   }
 }
 
-class MotifPainter extends CustomPainter {
-  final int dayOfYear;
-  MotifPainter(this.dayOfYear);
+class ZikirmatikScreen extends StatefulWidget {
+  const ZikirmatikScreen({super.key});
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.05)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final radius = size.width * 0.8;
-
-    final numPoints = 4 + (dayOfYear % 8); 
-    final rotationSteps = 3 + (dayOfYear % 6);
-
-    for (int r = 0; r < rotationSteps; r++) {
-      canvas.save();
-      canvas.translate(centerX, centerY);
-      canvas.rotate((pi / rotationSteps) * r + (dayOfYear * 0.01));
-      
-      final path = Path();
-      for (int i = 0; i < numPoints; i++) {
-        final angle = (2 * pi / numPoints) * i;
-        final x = cos(angle) * radius;
-        final y = sin(angle) * radius;
-        if (i == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
-      }
-      path.close();
-      canvas.drawPath(path, paint);
-      
-      canvas.drawCircle(Offset.zero, radius * 0.5, paint);
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant MotifPainter oldDelegate) {
-    return oldDelegate.dayOfYear != dayOfYear;
-  }
+  State<ZikirmatikScreen> createState() => _ZikirmatikScreenState();
 }
 
-class ZikirmatikDialog extends StatefulWidget {
-  const ZikirmatikDialog({super.key});
-
-  @override
-  State<ZikirmatikDialog> createState() => _ZikirmatikDialogState();
-}
-
-class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
+class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
   int _count = 0;
   SharedPreferences? _prefs;
 
@@ -2285,55 +2683,32 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final dialogWidth = screenSize.width * 0.90;
-    final dialogHeight = screenSize.height * 0.90;
-
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    return Scaffold(
       backgroundColor: const Color(0xFF1E293B),
-      child: Container(
-        width: dialogWidth,
-        height: dialogHeight,
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _resetCount,
-                  icon: const Icon(Icons.refresh, size: 18, color: Colors.white70),
-                  label: Text(
-                    t("Sıfırla", "Reset"),
-                    style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.white30, width: 1.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                Text(
-                  t("Zikirmatik", "Dhikr Counter"),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white70, size: 28),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E293B),
+        foregroundColor: Colors.white,
+        title: Text(
+          t("Zikirmatik", "Dhikr Counter"),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: _resetCount,
+            icon: const Icon(Icons.refresh, size: 18, color: Colors.white70),
+            label: Text(
+              t("Sıfırla", "Reset"),
+              style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 20),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+          children: [
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 28),
@@ -2450,6 +2825,7 @@ class _ZikirmatikDialogState extends State<ZikirmatikDialog> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );
