@@ -17,7 +17,9 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "com.metint.kiblem/ringtone"
     private val pickRingtoneRequestCode = 4201
+    private val pickAudioFileRequestCode = 4202
     private var pendingResult: MethodChannel.Result? = null
+    private var pendingFileResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,13 +30,25 @@ class MainActivity : FlutterActivity() {
                     val currentUriString = call.argument<String>("currentUri")
                     val currentUri = if (currentUriString != null) Uri.parse(currentUriString) else null
                     val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_RINGTONE)
                         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
                         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
                         putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, call.argument<String>("title") ?: "Ezan Sesi Seç")
                         putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, currentUri)
                     }
                     startActivityForResult(intent, pickRingtoneRequestCode)
+                }
+                "pickAudioFile" -> {
+                    pendingFileResult = result
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "audio/*"
+                        addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                        )
+                    }
+                    startActivityForResult(intent, pickAudioFileRequestCode)
                 }
                 "setChannelSound" -> {
                     val uriString = call.argument<String>("uri")
@@ -54,6 +68,8 @@ class MainActivity : FlutterActivity() {
                         call.argument<String>("title"),
                         call.argument<String>("body"),
                         call.argument<String>("stopLabel"),
+                        call.argument<String>("soundUri"),
+                        call.argument<String>("mode"),
                     )
                     result.success(null)
                 }
@@ -81,6 +97,30 @@ class MainActivity : FlutterActivity() {
             val uri: Uri? = data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
             pendingResult?.success(uri?.toString())
             pendingResult = null
+        } else if (requestCode == pickAudioFileRequestCode) {
+            val uri: Uri? = data?.data
+            if (uri == null) {
+                pendingFileResult?.success(null)
+            } else {
+                // Uygulama kapanıp açılsa da alarm anında dosyayı okuyabilmek için kalıcı izin al.
+                try {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {
+                    // Bazı sağlayıcılar kalıcı izin vermez; bu durumda ses çalınamazsa varsayılana düşülür.
+                }
+                pendingFileResult?.success(mapOf("uri" to uri.toString(), "title" to displayNameForUri(uri)))
+            }
+            pendingFileResult = null
+        }
+    }
+
+    private fun displayNameForUri(uri: Uri): String? {
+        return try {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -133,12 +173,16 @@ class MainActivity : FlutterActivity() {
         title: String?,
         body: String?,
         stopLabel: String?,
+        soundUri: String?,
+        mode: String?,
     ) {
         val intent = Intent(this, AzanAlarmReceiver::class.java).apply {
             putExtra(AzanRingerService.EXTRA_PRAYER_NAME, prayerName)
             putExtra(AzanRingerService.EXTRA_TITLE, title)
             putExtra(AzanRingerService.EXTRA_BODY, body)
             putExtra(AzanRingerService.EXTRA_STOP_LABEL, stopLabel)
+            putExtra(AzanRingerService.EXTRA_SOUND_URI, soundUri)
+            putExtra(AzanRingerService.EXTRA_MODE, mode)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             this, id, intent,

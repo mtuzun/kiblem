@@ -30,6 +30,9 @@ class AzanRingerService : Service() {
         const val EXTRA_TITLE = "notif_title"
         const val EXTRA_BODY = "notif_body"
         const val EXTRA_STOP_LABEL = "notif_stop_label"
+        const val EXTRA_SOUND_URI = "notif_sound_uri"
+        const val EXTRA_MODE = "alarm_mode"
+        const val MODE_NOTIFICATION = "notification"
         const val ACTION_STOP = "com.metint.kiblem.ACTION_STOP_AZAN"
         const val RING_DURATION_MS = 60_000L
     }
@@ -46,20 +49,16 @@ class AzanRingerService : Service() {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "$prayerName Vakti"
         val body = intent?.getStringExtra(EXTRA_BODY) ?: "Ezan vakti geldi — durdurmak için dokunun"
         val stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Durdur"
+        val soundUri = intent?.getStringExtra(EXTRA_SOUND_URI)
         startForeground(NOTIFICATION_ID, buildNotification(title, body, stopLabel))
-        startRinging()
+        startRinging(soundUri)
         stopHandler.removeCallbacks(stopRunnable)
         stopHandler.postDelayed(stopRunnable, RING_DURATION_MS)
         return START_NOT_STICKY
     }
 
-    private fun startRinging() {
-        val channelSoundUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.getNotificationChannel("azan_reminder")?.sound
-        } else null
-
-        val uri: Uri = channelSoundUri
+    private fun startRinging(soundUri: String?) {
+        val uri: Uri = soundUri?.let { Uri.parse(it) }
             ?: RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
 
@@ -127,7 +126,20 @@ class AzanRingerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Tam ekran alarm: kilit ekranında da açılan alarm ekranı.
+        val fullScreenIntent = Intent(this, AlarmActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_TITLE, title)
+            putExtra(EXTRA_BODY, body)
+            putExtra(EXTRA_STOP_LABEL, stopLabel)
+        }
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            this, 1, fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(title)
             .setContentText(body)
