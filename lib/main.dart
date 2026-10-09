@@ -1417,7 +1417,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget _settingsSection(BuildContext context, String? title, List<Widget> children) {
     final cs = Theme.of(context).colorScheme;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (title != null)
           Padding(
@@ -1510,7 +1510,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget _buildSettingsPage(BuildContext context, StateSetter setPageState) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+      backgroundColor: Color.alphaBlend(cs.surfaceContainerHighest.withValues(alpha: 0.5), cs.surface),
       appBar: AppBar(
         title: Text(t("Ayarlar", "Settings")),
         backgroundColor: cs.surface,
