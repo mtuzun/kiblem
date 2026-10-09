@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'friday_banner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -2068,6 +2069,13 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  /// Perşembe akşamı (akşam vakti) ile cuma ikindisi arasında "Hayırlı Cumalar" afişi gösterilir.
+  bool get _showFridayBanner {
+    final pt = prayerTimes;
+    if (pt == null) return false;
+    return FridayBanner.isActive(DateTime.now(), pt.maghrib, pt.asr);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = appThemeById(themeNotifier.value);
@@ -2079,6 +2087,8 @@ class _MainScreenState extends State<MainScreen> {
         child: SafeArea(
           child: Column(
             children: [
+              if (_showFridayBanner)
+                FridayBanner(text: t('Hayırlı Cumalar', 'Blessed Friday')),
               _buildHeader(),
               const SizedBox(height: 10),
               Expanded(
