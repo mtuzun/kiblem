@@ -61,10 +61,10 @@ List<_CoachStep> get _coachSteps => [
   _CoachStep(
     keys: [dailyHadithKey, dailyTabsKey],
     icon: Icons.format_quote,
-    title: t("Günün Hadisi", "Hadith of the Day"),
+    title: t("Vaktin Hadisi", "Hadith of the Hour"),
     description: t(
-      "Her gün sıradaki bir hadis-i şerif gösterilir. Uzun hadislerde \"Tamamını oku\" ile metnin tamamını görebilir, paylaş simgesiyle arkadaşlarınla paylaşabilirsin.",
-      "A new hadith is shown each day, in order. For long hadiths, tap \"Read more\" to see the full text, and use the share icon to send it to friends.",
+      "Her namaz vaktinde farklı bir kısa hadis-i şerif gösterilir ve her gün değişir. Uzun olanlarda \"Tamamını oku\" ile metnin tamamını görebilir, paylaş simgesiyle arkadaşlarınla paylaşabilirsin.",
+      "A different short hadith is shown for each prayer time, and it changes every day. For longer ones, tap \"Read more\" to see the full text, and use the share icon to send it to friends.",
     ),
     beforeShow: () => dailyTabNotifier.value = 1,
   ),
