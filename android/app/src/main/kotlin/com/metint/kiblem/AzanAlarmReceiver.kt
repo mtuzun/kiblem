@@ -26,6 +26,7 @@ class AzanAlarmReceiver : BroadcastReceiver() {
             putExtra(AzanRingerService.EXTRA_BODY, intent.getStringExtra(AzanRingerService.EXTRA_BODY))
             putExtra(AzanRingerService.EXTRA_STOP_LABEL, intent.getStringExtra(AzanRingerService.EXTRA_STOP_LABEL))
             putExtra(AzanRingerService.EXTRA_SOUND_URI, intent.getStringExtra(AzanRingerService.EXTRA_SOUND_URI))
+            putExtra(AzanRingerService.EXTRA_REPEAT, intent.getBooleanExtra(AzanRingerService.EXTRA_REPEAT, false))
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(serviceIntent)

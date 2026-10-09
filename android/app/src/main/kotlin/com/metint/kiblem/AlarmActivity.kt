@@ -1,6 +1,9 @@
 package com.metint.kiblem
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -13,6 +16,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 
 /** Tam ekran alarm: kilit ekranının üstünde açılır, "Durdur" ile çalan sesi susturur. */
 class AlarmActivity : Activity() {
@@ -63,7 +67,21 @@ class AlarmActivity : Activity() {
         })
         setContentView(root)
 
-        closeHandler.postDelayed({ finish() }, AzanRingerService.RING_DURATION_MS)
+        // Ses bitince (ya da durdurulunca) servis bir yayın gönderir; sayfa kendiliğinden kapanır.
+        ContextCompat.registerReceiver(
+            this,
+            ringFinishedReceiver,
+            IntentFilter(AzanRingerService.ACTION_RING_FINISHED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        // Güvenlik sınırı: servis bir şekilde yayın gönderemezse sayfa sonsuza dek açık kalmasın.
+        closeHandler.postDelayed({ finish() }, AzanRingerService.MAX_RING_DURATION_MS)
+    }
+
+    private val ringFinishedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            finish()
+        }
     }
 
     private fun stopAlarm() {
@@ -74,6 +92,11 @@ class AlarmActivity : Activity() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(ringFinishedReceiver)
+        } catch (e: Exception) {
+            // Kayıtlı değilse yoksay.
+        }
         closeHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }

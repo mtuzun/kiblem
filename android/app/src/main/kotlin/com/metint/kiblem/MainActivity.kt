@@ -70,6 +70,7 @@ class MainActivity : FlutterActivity() {
                         call.argument<String>("stopLabel"),
                         call.argument<String>("soundUri"),
                         call.argument<String>("mode"),
+                        call.argument<Boolean>("repeat") ?: false,
                     )
                     result.success(null)
                 }
@@ -175,6 +176,7 @@ class MainActivity : FlutterActivity() {
         stopLabel: String?,
         soundUri: String?,
         mode: String?,
+        repeat: Boolean,
     ) {
         val intent = Intent(this, AzanAlarmReceiver::class.java).apply {
             putExtra(AzanRingerService.EXTRA_PRAYER_NAME, prayerName)
@@ -183,6 +185,7 @@ class MainActivity : FlutterActivity() {
             putExtra(AzanRingerService.EXTRA_STOP_LABEL, stopLabel)
             putExtra(AzanRingerService.EXTRA_SOUND_URI, soundUri)
             putExtra(AzanRingerService.EXTRA_MODE, mode)
+            putExtra(AzanRingerService.EXTRA_REPEAT, repeat)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             this, id, intent,

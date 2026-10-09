@@ -32,9 +32,15 @@ class AzanRingerService : Service() {
         const val EXTRA_STOP_LABEL = "notif_stop_label"
         const val EXTRA_SOUND_URI = "notif_sound_uri"
         const val EXTRA_MODE = "alarm_mode"
+        const val EXTRA_REPEAT = "alarm_repeat"
+        const val REPEAT_RING_DURATION_MS = 60_000L
         const val MODE_NOTIFICATION = "notification"
         const val ACTION_STOP = "com.metint.kiblem.ACTION_STOP_AZAN"
-        const val RING_DURATION_MS = 60_000L
+        const val ACTION_RING_FINISHED = "com.metint.kiblem.ACTION_RING_FINISHED"
+        // Ses bir kez çalar ve bitince alarm susar. Bu süreler yalnızca güvenlik sınırıdır:
+        // çok uzun bir dosya seçilirse en fazla 10 dakika, ses çalınamazsa 30 saniye sürer.
+        const val MAX_RING_DURATION_MS = 10 * 60_000L
+        const val FALLBACK_RING_DURATION_MS = 30_000L
     }
 
     override fun onBind(intent: Intent?) = null
@@ -51,17 +57,30 @@ class AzanRingerService : Service() {
         val stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Durdur"
         val soundUri = intent?.getStringExtra(EXTRA_SOUND_URI)
         startForeground(NOTIFICATION_ID, buildNotification(title, body, stopLabel))
-        startRinging(soundUri)
+        val repeat = intent?.getBooleanExtra(EXTRA_REPEAT, false) ?: false
+        val started = startRinging(soundUri, repeat)
         stopHandler.removeCallbacks(stopRunnable)
-        stopHandler.postDelayed(stopRunnable, RING_DURATION_MS)
+        stopHandler.postDelayed(
+            stopRunnable,
+            when {
+                !started -> FALLBACK_RING_DURATION_MS
+                repeat -> REPEAT_RING_DURATION_MS
+                else -> MAX_RING_DURATION_MS
+            }
+        )
         return START_NOT_STICKY
     }
 
-    private fun startRinging(soundUri: String?) {
+    /**
+     * [repeat] false ise ses bir kez çalar ve bitince alarm susar; true ise ses 1 dakika tekrar eder.
+     * Çalınabildiyse true döner.
+     */
+    private fun startRinging(soundUri: String?, repeat: Boolean): Boolean {
         val uri: Uri = soundUri?.let { Uri.parse(it) }
             ?: RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
 
+        var started = false
         try {
             mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
@@ -72,10 +91,12 @@ class AzanRingerService : Service() {
                         .build()
                 )
                 setDataSource(this@AzanRingerService, uri)
-                isLooping = true
+                isLooping = repeat
+                if (!repeat) setOnCompletionListener { stopRinging() }
                 prepare()
                 start()
             }
+            started = true
         } catch (e: Exception) {
             // Ses çalınamıyorsa sessizce devam et; bildirim ve titreşim yine de gösterilir.
         }
@@ -83,10 +104,11 @@ class AzanRingerService : Service() {
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "kiblem:azan_ringer")
-            wakeLock?.acquire(RING_DURATION_MS + 5_000L)
+            wakeLock?.acquire((if (repeat) REPEAT_RING_DURATION_MS else MAX_RING_DURATION_MS) + 5_000L)
         } catch (e: Exception) {
             // Wake lock alınamazsa servis yine de çalışmaya devam eder.
         }
+        return started
     }
 
     private fun stopRinging() {
@@ -102,6 +124,8 @@ class AzanRingerService : Service() {
         mediaPlayer = null
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        // Açık olan tam ekran alarm sayfası da kapansın.
+        sendBroadcast(Intent(ACTION_RING_FINISHED).setPackage(packageName))
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

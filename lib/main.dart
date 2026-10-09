@@ -47,7 +47,10 @@ class PrayerAlarm {
   String? soundUri;
   String? soundTitle;
 
-  PrayerAlarm({this.enabled = false, this.minutes = 15, this.soundUri, this.soundTitle});
+  /// true: ses 1 dakika boyunca tekrar eder. false: ses dosyası bir kez çalar, bitince alarm susar.
+  bool oneMinute;
+
+  PrayerAlarm({this.enabled = false, this.minutes = 15, this.soundUri, this.soundTitle, this.oneMinute = false});
 }
 
 final GlobalKey qiblaButtonKey = GlobalKey();
@@ -1135,6 +1138,7 @@ class _MainScreenState extends State<MainScreen> {
         minutes: prefs.getInt('alarm_${i}_minutes') ?? legacyMinutes,
         soundUri: prefs.getString('alarm_${i}_sound_uri') ?? legacyUri,
         soundTitle: prefs.getString('alarm_${i}_sound_title') ?? legacyTitle,
+        oneMinute: prefs.getBool('alarm_${i}_one_minute') ?? false,
       ),
     );
     if (!mounted) return;
@@ -1152,6 +1156,7 @@ class _MainScreenState extends State<MainScreen> {
     final a = prayerAlarms[i];
     await prefs.setBool('alarm_${i}_enabled', a.enabled);
     await prefs.setInt('alarm_${i}_minutes', a.minutes);
+    await prefs.setBool('alarm_${i}_one_minute', a.oneMinute);
     if (a.soundUri != null) {
       await prefs.setString('alarm_${i}_sound_uri', a.soundUri!);
     }
@@ -1347,6 +1352,38 @@ class _MainScreenState extends State<MainScreen> {
     if (picked != null) await _setAlarmMinutes(i, picked);
   }
 
+  String _durationLabel(PrayerAlarm a) =>
+      a.oneMinute ? t("1 dk. çalsın", "Rings 1 min") : t("Ses bitene kadar", "Until sound ends");
+
+  Future<void> _pickAlarmDuration(int i) async {
+    final picked = await showDialog<bool>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(t("Alarm ne kadar çalsın?", "How long should it ring?")),
+        children: [
+          ListTile(
+            title: Text(t("Ses bitene kadar", "Until the sound ends")),
+            subtitle: Text(t("Ses dosyası bir kez çalar, bitince alarm susar.", "The sound plays once and the alarm stops.")),
+            trailing: !prayerAlarms[i].oneMinute ? const Icon(Icons.check) : null,
+            onTap: () => Navigator.pop(context, false),
+          ),
+          ListTile(
+            title: Text(t("1 dakika", "1 minute")),
+            subtitle: Text(t("Ses 1 dakika boyunca tekrar eder.", "The sound repeats for 1 minute.")),
+            trailing: prayerAlarms[i].oneMinute ? const Icon(Icons.check) : null,
+            onTap: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    setState(() {
+      prayerAlarms[i].oneMinute = picked;
+    });
+    await _savePrayerAlarm(i);
+    await _scheduleAzanReminders();
+  }
+
   static const List<int> _alarmMinuteOptions = [0, 1, 5, 10, 15, 20, 30, 45, 60];
 
   String _minutesLabel(int m) =>
@@ -1400,6 +1437,7 @@ class _MainScreenState extends State<MainScreen> {
         'stopLabel': t("Durdur", "Stop"),
         'soundUri': alarm.soundUri,
         'mode': alarmMode,
+        'repeat': alarm.oneMinute,
       });
     }
   }
@@ -1545,49 +1583,72 @@ class _MainScreenState extends State<MainScreen> {
             },
           ),
           const SizedBox(width: 8),
+          // Dar ekranda ya da büyük yazı boyutunda bağlantılar alt satıra iner; böylece
+          // vakit adı kesilmez. Yer varsa eskisi gibi aynı satırda, sağda durur.
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 2,
               children: [
-                Text(
-                  _alarmLabel(i),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 16, color: textColor),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _alarmLabel(i),
+                      style: TextStyle(fontSize: 16, color: textColor),
+                    ),
+                    Text(
+                      // iOS'ta uygulamalar sistem zil sesini kullanamaz; varsayılan bildirim sesi çalar.
+                      _isIos
+                          ? t("Varsayılan ses", "Default sound")
+                          : (alarm.soundTitle ?? t("Varsayılan", "Default")),
+                      style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
+                    ),
+                  ],
                 ),
-                Text(
-                  // iOS'ta uygulamalar sistem zil sesini kullanamaz; varsayılan bildirim sesi çalar.
-                  _isIos
-                      ? t("Varsayılan ses", "Default sound")
-                      : (alarm.soundTitle ?? t("Varsayılan", "Default")),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () async {
+                        await _pickAlarmMinutes(i);
+                        setPageState(() {});
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Text(_minutesLabel(alarm.minutes), style: linkStyle),
+                      ),
+                    ),
+                    if (!_isIos)
+                      InkWell(
+                        onTap: () async {
+                          await _pickAlarmSound(i);
+                          setPageState(() {});
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Text(t("Sesi Değiştir", "Change Sound"), style: linkStyle),
+                        ),
+                      ),
+                  ],
                 ),
+                // Alarm süresi yalnızca Android'de ve tam ekran alarm modunda anlamlıdır.
+                if (!_isIos && alarmMode == 'fullscreen')
+                  InkWell(
+                    onTap: () async {
+                      await _pickAlarmDuration(i);
+                      setPageState(() {});
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Text(_durationLabel(alarm), style: linkStyle),
+                    ),
+                  ),
               ],
             ),
           ),
-          InkWell(
-            onTap: () async {
-              await _pickAlarmMinutes(i);
-              setPageState(() {});
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Text(_minutesLabel(alarm.minutes), style: linkStyle),
-            ),
-          ),
-          if (!_isIos)
-            InkWell(
-              onTap: () async {
-                await _pickAlarmSound(i);
-                setPageState(() {});
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Text(t("Sesi Değiştir", "Change Sound"), style: linkStyle),
-              ),
-            ),
         ],
       ),
     );
@@ -1636,8 +1697,8 @@ class _MainScreenState extends State<MainScreen> {
                     padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
                     child: Text(
                       alarmMode == 'fullscreen'
-                          ? t("Vakitte telefon alarm gibi çalar, kilit ekranında tam ekran açılır (1 dakika veya durdurana kadar).",
-                              "The phone rings like an alarm and opens full-screen over the lock screen (1 minute or until stopped).")
+                          ? t("Vakitte telefon alarm gibi çalar, kilit ekranında tam ekran açılır (süreyi her vakit için seçebilirsin).",
+                              "The phone rings like an alarm and opens full-screen over the lock screen (you can choose the length for each prayer).")
                           : t("Vakitte seçtiğin zil sesiyle normal bir bildirim gelir.",
                               "A normal notification arrives with the ringtone you chose."),
                       style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
