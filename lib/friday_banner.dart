@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 /// Perşembe akşamından (akşam vakti) cuma ikindisine kadar ana ekranın üstünde gösterilen
-/// "Hayırlı Cumalar" afişi. Oturum boyunca bir kez kapatılırsa uygulama yeniden açılana kadar çıkmaz.
+/// "Hayırlı Cumalar" afişi. 5 saniye sonra ya da dokunulunca kapanır; kapandıktan sonra uygulama yeniden açılana kadar çıkmaz.
 class FridayBanner extends StatefulWidget {
   final String text;
   const FridayBanner({super.key, required this.text});
@@ -22,6 +23,24 @@ class FridayBanner extends StatefulWidget {
 }
 
 class _FridayBannerState extends State<FridayBanner> {
+  Timer? _hideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Dokunulmazsa 5 saniye sonra kendiliğinden kaybolur.
+    _hideTimer = Timer(const Duration(seconds: 5), () {
+      FridayBanner.dismissedThisSession = true;
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (FridayBanner.dismissedThisSession) return const SizedBox.shrink();
