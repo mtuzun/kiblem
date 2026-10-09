@@ -231,8 +231,37 @@ class _MainScreenState extends State<MainScreen> {
   bool _mealAfterQuran = false;
   bool get isPlaying => audioPlayingNotifier.value;
 
+  bool _audioServiceRunning = false;
+  Timer? _audioServiceStopTimer;
+
   void _syncPlaying() {
     audioPlayingNotifier.value = _quranPlaying || _ttsSpeaking || _mealAfterQuran;
+    _syncAudioService();
+  }
+
+  /// Dinletme sürerken Android ön plan servisi çalışır: ekran kilitlenince ya da uygulama arka
+  /// plana alınınca ses kesilmez, bildirimdeki "Durdur" ile durdurulur. Ayetler arası kısa
+  /// boşluklarda servis kapanıp açılmasın diye durdurma birkaç saniye geciktirilir.
+  void _syncAudioService() {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (audioPlayingNotifier.value || isAutoPlaying) {
+      _audioServiceStopTimer?.cancel();
+      _audioServiceStopTimer = null;
+      if (!_audioServiceRunning) {
+        _audioServiceRunning = true;
+        ringtoneChannel.invokeMethod('startAudioService', {
+          'title': t('Ayet dinletiliyor', 'Playing verse'),
+          'stopLabel': t('Durdur', 'Stop'),
+        }).catchError((_) {});
+      }
+    } else if (_audioServiceRunning && _audioServiceStopTimer == null) {
+      _audioServiceStopTimer = Timer(const Duration(seconds: 4), () {
+        _audioServiceStopTimer = null;
+        if (audioPlayingNotifier.value || isAutoPlaying) return;
+        _audioServiceRunning = false;
+        ringtoneChannel.invokeMethod('stopAudioService').catchError((_) {});
+      });
+    }
   }
 
   BannerAd? _bannerAd;
@@ -451,6 +480,20 @@ class _MainScreenState extends State<MainScreen> {
     _initAyah();
     
     audioPlayer = AudioPlayer();
+    if (!kIsWeb && Platform.isAndroid) {
+      // Ekran kilitliyken akış kesilmesin (CPU ve Wi-Fi uyanık kalır).
+      audioPlayer!.setAudioContext(AudioContext(
+        android: const AudioContextAndroid(stayAwake: true),
+      ));
+      // Bildirimdeki "Durdur" düğmesi.
+      ringtoneChannel.setMethodCallHandler((call) async {
+        if (call.method == 'stopAyahAudio') {
+          isAutoPlaying = false;
+          await _stopAllAudio();
+          if (mounted) setState(() {});
+        }
+      });
+    }
     audioPlayer!.onPlayerStateChanged.listen((state) {
       _quranPlaying = state == PlayerState.playing;
       _syncPlaying();
@@ -493,6 +536,10 @@ class _MainScreenState extends State<MainScreen> {
     timer?.cancel();
     audioPlayer?.dispose();
     tts.stop();
+    _audioServiceStopTimer?.cancel();
+    if (_audioServiceRunning && !kIsWeb && Platform.isAndroid) {
+      ringtoneChannel.invokeMethod('stopAudioService').catchError((_) {});
+    }
     _bannerAd?.dispose();
     super.dispose();
   }
@@ -722,16 +769,16 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _setAudioMode(String mode) async {
-    await _stopAllAudio();
     isAutoPlaying = false;
+    await _stopAllAudio();
     audioModeNotifier.value = mode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('audio_mode', mode);
   }
 
   Future<void> _setAudioMeal(String meal) async {
-    await _stopAllAudio();
     isAutoPlaying = false;
+    await _stopAllAudio();
     audioMealNotifier.value = meal;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('audio_meal', meal);
@@ -822,6 +869,7 @@ class _MainScreenState extends State<MainScreen> {
     if (!await hasInternet()) {
       isAutoPlaying = false;
       _showAudioNotice();
+      _syncPlaying();
       return;
     }
     _mealAfterQuran = mode == 'both';

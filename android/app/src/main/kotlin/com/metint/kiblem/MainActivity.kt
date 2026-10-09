@@ -23,8 +23,30 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        // Bildirimdeki "Durdur" düğmesi: sesi Flutter tarafında durdurur.
+        AudioPlaybackService.onStopRequested = {
+            runOnUiThread { channel.invokeMethod("stopAyahAudio", null) }
+        }
+        channel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "startAudioService" -> {
+                    val intent = Intent(this, AudioPlaybackService::class.java).apply {
+                        action = AudioPlaybackService.ACTION_START
+                        putExtra(AudioPlaybackService.EXTRA_TITLE, call.argument<String>("title"))
+                        putExtra(AudioPlaybackService.EXTRA_STOP_LABEL, call.argument<String>("stopLabel"))
+                    }
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+                    } catch (e: Exception) {
+                        // Servis başlatılamazsa ses yine de çalar; yalnızca arka planda kesilebilir.
+                    }
+                    result.success(null)
+                }
+                "stopAudioService" -> {
+                    stopService(Intent(this, AudioPlaybackService::class.java))
+                    result.success(null)
+                }
                 "pickRingtone" -> {
                     pendingResult = result
                     val currentUriString = call.argument<String>("currentUri")
