@@ -2432,7 +2432,11 @@ class _MainScreenState extends State<MainScreen> {
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
-                child: CountdownView(theme: appThemeById(themeNotifier.value), s: _homeSnapshot()),
+                child: CountdownView(
+                  theme: appThemeById(themeNotifier.value),
+                  s: _homeSnapshot(),
+                  onDateTap: _showDatePickerForPrayerTimes,
+                ),
               ),
             ],
           ),
@@ -2827,6 +2831,76 @@ class _MainScreenState extends State<MainScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: Colors.grey[700]),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Tarih kutusuna çift dokununca açılır: seçilen güne ait namaz vakitlerini gösterir.
+  /// Tamamen yerel hesaplama (adhan paketi); internet ya da ek bir izin gerekmez.
+  Future<void> _showDatePickerForPrayerTimes() async {
+    final coords = activeCoordinates;
+    if (coords == null) return;
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 3),
+      helpText: t('Tarih Seç', 'Select Date'),
+      cancelText: t('Vazgeç', 'Cancel'),
+      confirmText: t('Tamam', 'OK'),
+    );
+    if (picked == null || !mounted) return;
+
+    final params = _prayerCalcParams();
+    final times = PrayerTimes(coords, DateComponents(picked.year, picked.month, picked.day), params);
+    final format = DateFormat('HH:mm');
+    final isToday = picked.year == now.year && picked.month == now.month && picked.day == now.day;
+    final rows = <PrayerEntry>[
+      for (var i = 0; i < _prayerAlarmCount; i++)
+        PrayerEntry(
+          _getPrayerName(_prayerFromIndex(i)),
+          format.format(_prayerTimeAt(times, i)),
+          isToday && prayerTimes != null && _getPrayerName(_prayerFromIndex(i)) == nextPrayerName,
+        ),
+    ];
+    final gregorian = "${picked.day.toString().padLeft(2, '0')} ${longMonth(picked.month)} ${picked.year}";
+    final hijri = hijriDateString(picked);
+
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("$gregorian\n$hijri", style: const TextStyle(fontSize: 15)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final r in rows)
+                Container(
+                  width: 92,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: r.active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(r.name, style: TextStyle(fontSize: 12, color: r.active ? Colors.white : null)),
+                      const SizedBox(height: 4),
+                      Text(r.time, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: r.active ? Colors.white : null)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(t('Kapat', 'Close'))),
         ],
       ),
     );
