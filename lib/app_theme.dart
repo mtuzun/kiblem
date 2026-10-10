@@ -509,6 +509,7 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
                 Wrap(
                   alignment: WrapAlignment.spaceBetween,
                   crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
                   runSpacing: 8,
                   children: [
                     Container(

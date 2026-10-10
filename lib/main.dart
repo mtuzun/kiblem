@@ -2258,6 +2258,7 @@ class _MainScreenState extends State<MainScreen> {
               Wrap(
                 alignment: WrapAlignment.spaceBetween,
                 crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
                 runSpacing: 8,
                 children: [
                   Container(

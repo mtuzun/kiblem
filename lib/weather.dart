@@ -193,7 +193,7 @@ class WeatherStrip extends StatelessWidget {
         final dark = theme.id == 'leather' || theme.id == 'night';
         final accent = theme.id == 'night' ? theme.accent : Colors.white;
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: theme.id == 'ocean'
               ? null
               : BoxDecoration(
