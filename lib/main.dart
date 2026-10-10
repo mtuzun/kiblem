@@ -2253,12 +2253,14 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              // Şehir kutusu ve hava durumu aynı satıra sığmazsa (uzun şehir adı, dar ekran,
+              // büyütülmüş yazı tipi), hava durumu küçülüp sıkışmak yerine alt satıra kayar.
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 8,
                 children: [
-                  Flexible(
-                    flex: 0,
-                    child: Container(
+                  Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white70),
@@ -2288,15 +2290,8 @@ class _MainScreenState extends State<MainScreen> {
                       },
                     ),
                   ),
-                  ),
-                  const SizedBox(width: 8),
                   // Hava durumu: her temada şehir kutusunun sağında, temaya uygun görünümle.
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: WeatherStrip(theme: appThemeById(themeNotifier.value)),
-                    ),
-                  ),
+                  WeatherStrip(theme: appThemeById(themeNotifier.value)),
                 ],
               ),
               const SizedBox(height: 20),

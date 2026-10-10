@@ -506,7 +506,10 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 8,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -523,8 +526,7 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(child: Align(alignment: Alignment.centerRight, child: WeatherStrip(theme: theme))),
+                    WeatherStrip(theme: theme),
                   ],
                 ),
                 const SizedBox(height: 20),
