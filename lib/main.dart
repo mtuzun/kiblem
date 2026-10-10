@@ -14,6 +14,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'friday_banner.dart';
 import 'weather.dart';
+import 'surah_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -975,6 +976,38 @@ class _MainScreenState extends State<MainScreen> {
       _saveLastReadVerse();
       _fetchAyah(displayedAyahNumber!);
     }
+  }
+
+  /// Sure/ayet seçim ekranından dönen genel (1-6236) ayet numarasına doğrudan atlar.
+  void _jumpToAyah(int ayahNumber) {
+    displayedAyahNumber = ayahNumber;
+    _saveLastReadVerse();
+    _fetchAyah(ayahNumber);
+  }
+
+  Future<void> _openSurahPicker() async {
+    final result = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(builder: (context) => const SurahPickerScreen()),
+    );
+    if (result != null) _jumpToAyah(result);
+  }
+
+  /// Ana ekrandaki küçük ayet kartında sure adına (örn. "An-Nisaa, 13. Ayet") çift
+  /// dokunulduysa sure/ayet seçim listesini, değilse tam ekran ayet sayfasını açar.
+  final GlobalKey _ayahRefKey = GlobalKey();
+  Offset? _lastDoubleTapGlobalPos;
+  void _handleAyahCardDoubleTap(BuildContext context) {
+    final pos = _lastDoubleTapGlobalPos;
+    final box = _ayahRefKey.currentContext?.findRenderObject() as RenderBox?;
+    if (pos != null && box != null && box.attached) {
+      final local = box.globalToLocal(pos);
+      if ((Offset.zero & box.size).contains(local)) {
+        _openSurahPicker();
+        return;
+      }
+    }
+    _showAyahDialog(context);
   }
 
   void _prevSurah() {
@@ -2394,7 +2427,12 @@ class _MainScreenState extends State<MainScreen> {
     final isLastAyah = displayedAyahNumber == 6236;
     
     return GestureDetector(
-      onDoubleTap: () => _showAyahDialog(context),
+      // Sure adına (örn. "An-Nisaa, 13. Ayet") çift dokununca sure/ayet seçim listesi,
+      // kartın başka bir yerine çift dokununca tam ekran ayet sayfası açılır. Aynı anda
+      // iki ayrı "çift dokunma" algılayıcısı çakışıp çökmesin diye tek algılayıcı kullanılıp
+      // dokunma konumu sure adının alanıyla karşılaştırılır.
+      onDoubleTapDown: (details) => _lastDoubleTapGlobalPos = details.globalPosition,
+      onDoubleTap: () => _handleAyahCardDoubleTap(context),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(20),
@@ -2423,7 +2461,10 @@ class _MainScreenState extends State<MainScreen> {
                       onPressed: _prevAyah,
                     ),
                     const SizedBox(width: 5),
-                    Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Container(
+                      key: _ayahRefKey,
+                      child: Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ),
                     const SizedBox(width: 5),
                     IconButton(
                       icon: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
@@ -2793,6 +2834,11 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(t("Ayet-i Kerime", "Quran Verse")),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt, color: Colors.green),
+            tooltip: t("Sure Seç", "Select Surah"),
+            onPressed: _openSurahPicker,
+          ),
           IconButton(
             icon: const Icon(Icons.share, color: Colors.green),
             tooltip: t("Paylaş", "Share"),
