@@ -96,6 +96,14 @@ class MainActivity : FlutterActivity() {
                     )
                     result.success(null)
                 }
+                "openLockScreenZikir" -> {
+                    startActivity(Intent(this, LockScreenZikirActivity::class.java).apply {
+                        putExtra("title", call.argument<String>("title"))
+                        putExtra("resetLabel", call.argument<String>("resetLabel"))
+                        putExtra("closeLabel", call.argument<String>("closeLabel"))
+                    })
+                    result.success(null)
+                }
                 "cancelAzanAlarm" -> {
                     val id = call.argument<Int>("id") ?: 0
                     cancelAzanAlarm(id)

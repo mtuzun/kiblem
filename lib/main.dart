@@ -14,6 +14,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'friday_banner.dart';
 import 'weather.dart';
+import 'surah_picker.dart';
+import 'ayah_audio_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -557,6 +559,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void dispose() {
     _audioNoticeTimer?.cancel();
+    _internetWaitTimer?.cancel();
     dailyTabNotifier.removeListener(_onDailyTabChanged);
     langNotifier.removeListener(_onLangChanged);
     themeNotifier.removeListener(_onAppearanceChanged);
@@ -824,6 +827,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _stopAllAudio() async {
     _mealAfterQuran = false;
+    _cancelInternetWait();
     try {
       await audioPlayer?.stop();
       await tts.stop();
@@ -831,6 +835,43 @@ class _MainScreenState extends State<MainScreen> {
     _quranPlaying = false;
     _ttsSpeaking = false;
     _syncPlaying();
+  }
+
+  // --- Ağ kesintisinde donmayı önleme: indirip-sonra-çal + ön tampon ------------------
+  //
+  // Kur'an sesi artık doğrudan internetten akıtılmıyor (streaming); çalınmadan önce
+  // tamamen indirilip yerel dosyadan çalınıyor. Otomatik dinlemede sıradaki birkaç ayet
+  // arka planda önceden indirilir (yaklaşık 3-4 dakikalık bir "ön tampon"). Böylece kısa
+  // internet kesintileri (ör. metroda bir-iki durak arası) dinlemeyi hiç kesmez. İndirme
+  // başarısız olursa (uzun kesinti) otomatik mod durmadan beklemeye geçilir; bağlantı
+  // dönünce kullanıcı hiçbir şeye dokunmadan kaldığı ayetten devam eder.
+  Timer? _internetWaitTimer;
+
+  void _cancelInternetWait() {
+    _internetWaitTimer?.cancel();
+    _internetWaitTimer = null;
+  }
+
+  void _waitForInternetThenResume() {
+    _cancelInternetWait();
+    _showAudioNotice(t(
+      "İnternet bağlantısı bekleniyor; bağlanınca kaldığın yerden devam edecek.",
+      "Waiting for an internet connection; playback will resume automatically.",
+    ));
+    // Bildirim internet gelene kadar ekranda kalsın (varsayılan 6 sn. kapanmayı iptal et).
+    _audioNoticeTimer?.cancel();
+    _internetWaitTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!isAutoPlaying || !mounted) {
+        timer.cancel();
+        return;
+      }
+      if (await hasInternet()) {
+        timer.cancel();
+        _internetWaitTimer = null;
+        audioNotice.value = null;
+        await _startAyahAudio();
+      }
+    });
   }
 
   /// Seçili mealı telefonun sesli okuma özelliğiyle okutur.
@@ -904,9 +945,50 @@ class _MainScreenState extends State<MainScreen> {
       if (mode == 'both') await _speakMeal();
       return;
     }
+    _cancelInternetWait();
+
+    // Mobilde donmayı önlemek için ses akıtılmadan (streaming) önce tamamen indirilip
+    // diskten çalınır; web'de dosya sistemi erişimi olmadığından eskisi gibi akıtılır.
+    if (!kIsWeb) {
+      final n = displayedAyahNumber;
+      var localPath = n == null ? null : await AyahAudioCache.instance.localPath(n);
+      if (localPath == null) {
+        if (!await hasInternet()) {
+          // İnternet yok: otomatik modu durdurmak yerine bağlantı dönünce kendiliğinden
+          // devam edecek şekilde bekle (kullanıcı müdahalesi gerekmez).
+          if (isAutoPlaying) {
+            _waitForInternetThenResume();
+          } else {
+            _showAudioNotice();
+          }
+          _syncPlaying();
+          return;
+        }
+        localPath = n == null ? null : await AyahAudioCache.instance.ensureDownloaded(n, audioUrl);
+      }
+      if (localPath != null) {
+        _mealAfterQuran = mode == 'both';
+        _syncPlaying();
+        await audioPlayer!.play(DeviceFileSource(localPath));
+        if (n != null) {
+          // Otomatik dinlemede sıradaki birkaç ayeti arka planda önceden indir (ön tampon)
+          // ve çok geride kalan eski dosyaları sil.
+          if (isAutoPlaying) {
+            AyahAudioCache.instance.prefetchAhead(n, _cdnAudioUrlForAyah);
+          }
+          AyahAudioCache.instance.trim(n);
+        }
+        return;
+      }
+      // İndirme başarısız oldu (ör. kesinti indirme sırasında oldu); akışa (streaming) düş.
+    }
+
     if (!await hasInternet()) {
-      isAutoPlaying = false;
-      _showAudioNotice();
+      if (isAutoPlaying) {
+        _waitForInternetThenResume();
+      } else {
+        _showAudioNotice();
+      }
       _syncPlaying();
       return;
     }
@@ -914,6 +996,11 @@ class _MainScreenState extends State<MainScreen> {
     _syncPlaying();
     await audioPlayer!.play(UrlSource(audioUrl));
   }
+
+  /// cdn.islamic.network'teki Mişarî el-Afâsî okunuşu; offline_quran.dart'taki formülle aynı.
+  /// Ön yükleme (prefetch) ayet numarasından URL üretmek için bunu kullanır.
+  String _cdnAudioUrlForAyah(int ayahNumber) =>
+      'https://cdn.islamic.network/quran/audio/128/ar.alafasy/$ayahNumber.mp3';
 
   void _nextAyah() {
     if (displayedAyahNumber != null) {
@@ -975,6 +1062,38 @@ class _MainScreenState extends State<MainScreen> {
       _saveLastReadVerse();
       _fetchAyah(displayedAyahNumber!);
     }
+  }
+
+  /// Sure/ayet seçim ekranından dönen genel (1-6236) ayet numarasına doğrudan atlar.
+  void _jumpToAyah(int ayahNumber) {
+    displayedAyahNumber = ayahNumber;
+    _saveLastReadVerse();
+    _fetchAyah(ayahNumber);
+  }
+
+  Future<void> _openSurahPicker() async {
+    final result = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(builder: (context) => const SurahPickerScreen()),
+    );
+    if (result != null) _jumpToAyah(result);
+  }
+
+  /// Ana ekrandaki küçük ayet kartında sure adına (örn. "An-Nisaa, 13. Ayet") çift
+  /// dokunulduysa sure/ayet seçim listesini, değilse tam ekran ayet sayfasını açar.
+  final GlobalKey _ayahRefKey = GlobalKey();
+  Offset? _lastDoubleTapGlobalPos;
+  void _handleAyahCardDoubleTap(BuildContext context) {
+    final pos = _lastDoubleTapGlobalPos;
+    final box = _ayahRefKey.currentContext?.findRenderObject() as RenderBox?;
+    if (pos != null && box != null && box.attached) {
+      final local = box.globalToLocal(pos);
+      if ((Offset.zero & box.size).contains(local)) {
+        _openSurahPicker();
+        return;
+      }
+    }
+    _showAyahDialog(context);
   }
 
   void _prevSurah() {
@@ -2135,7 +2254,22 @@ class _MainScreenState extends State<MainScreen> {
         }
       }
       await HomeWidget.saveWidgetData<String>('widget_prayer_timeline', jsonEncode(timeline));
+
+      // 2. (geniş) widget: günün tüm 6 vakti, aktif olanın sırası, miladi ve hicri tarih.
+      final snapshot = _homeSnapshot();
+      await HomeWidget.saveWidgetData<String>(
+        'widget_today_prayers',
+        jsonEncode([for (final p in snapshot.prayers) {'name': p.name, 'time': p.time}]),
+      );
+      await HomeWidget.saveWidgetData<int>(
+        'widget_active_index',
+        snapshot.prayers.indexWhere((p) => p.active),
+      );
+      await HomeWidget.saveWidgetData<String>('widget_date_gregorian', snapshot.gregorian);
+      await HomeWidget.saveWidgetData<String>('widget_date_hijri', snapshot.hijri);
+
       await HomeWidget.updateWidget(androidName: 'PrayerWidgetProvider');
+      await HomeWidget.updateWidget(androidName: 'PrayerWidgetFullProvider');
     } catch (e) {
       debugPrint("Widget güncellenemedi: $e");
     }
@@ -2253,12 +2387,15 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              // Şehir kutusu ve hava durumu aynı satıra sığmazsa (uzun şehir adı, dar ekran,
+              // büyütülmüş yazı tipi), hava durumu küçülüp sıkışmak yerine alt satıra kayar.
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
-                  Flexible(
-                    flex: 0,
-                    child: Container(
+                  Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white70),
@@ -2288,21 +2425,18 @@ class _MainScreenState extends State<MainScreen> {
                       },
                     ),
                   ),
-                  ),
-                  const SizedBox(width: 8),
                   // Hava durumu: her temada şehir kutusunun sağında, temaya uygun görünümle.
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: WeatherStrip(theme: appThemeById(themeNotifier.value)),
-                    ),
-                  ),
+                  WeatherStrip(theme: appThemeById(themeNotifier.value)),
                 ],
               ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
-                child: CountdownView(theme: appThemeById(themeNotifier.value), s: _homeSnapshot()),
+                child: CountdownView(
+                  theme: appThemeById(themeNotifier.value),
+                  s: _homeSnapshot(),
+                  onDateTap: _showDatePickerForPrayerTimes,
+                ),
               ),
             ],
           ),
@@ -2398,7 +2532,12 @@ class _MainScreenState extends State<MainScreen> {
     final isLastAyah = displayedAyahNumber == 6236;
     
     return GestureDetector(
-      onDoubleTap: () => _showAyahDialog(context),
+      // Sure adına (örn. "An-Nisaa, 13. Ayet") çift dokununca sure/ayet seçim listesi,
+      // kartın başka bir yerine çift dokununca tam ekran ayet sayfası açılır. Aynı anda
+      // iki ayrı "çift dokunma" algılayıcısı çakışıp çökmesin diye tek algılayıcı kullanılıp
+      // dokunma konumu sure adının alanıyla karşılaştırılır.
+      onDoubleTapDown: (details) => _lastDoubleTapGlobalPos = details.globalPosition,
+      onDoubleTap: () => _handleAyahCardDoubleTap(context),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(20),
@@ -2427,7 +2566,10 @@ class _MainScreenState extends State<MainScreen> {
                       onPressed: _prevAyah,
                     ),
                     const SizedBox(width: 5),
-                    Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Container(
+                      key: _ayahRefKey,
+                      child: Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ),
                     const SizedBox(width: 5),
                     IconButton(
                       icon: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
@@ -2694,6 +2836,76 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  /// Tarih kutusuna çift dokununca açılır: seçilen güne ait namaz vakitlerini gösterir.
+  /// Tamamen yerel hesaplama (adhan paketi); internet ya da ek bir izin gerekmez.
+  Future<void> _showDatePickerForPrayerTimes() async {
+    final coords = activeCoordinates;
+    if (coords == null) return;
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 3),
+      helpText: t('Tarih Seç', 'Select Date'),
+      cancelText: t('Vazgeç', 'Cancel'),
+      confirmText: t('Tamam', 'OK'),
+    );
+    if (picked == null || !mounted) return;
+
+    final params = _prayerCalcParams();
+    final times = PrayerTimes(coords, DateComponents(picked.year, picked.month, picked.day), params);
+    final format = DateFormat('HH:mm');
+    final isToday = picked.year == now.year && picked.month == now.month && picked.day == now.day;
+    final rows = <PrayerEntry>[
+      for (var i = 0; i < _prayerAlarmCount; i++)
+        PrayerEntry(
+          _getPrayerName(_prayerFromIndex(i)),
+          format.format(_prayerTimeAt(times, i)),
+          isToday && prayerTimes != null && _getPrayerName(_prayerFromIndex(i)) == nextPrayerName,
+        ),
+    ];
+    final gregorian = "${picked.day.toString().padLeft(2, '0')} ${longMonth(picked.month)} ${picked.year}";
+    final hijri = hijriDateString(picked);
+
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("$gregorian\n$hijri", style: const TextStyle(fontSize: 15)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final r in rows)
+                Container(
+                  width: 92,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: r.active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(r.name, style: TextStyle(fontSize: 12, color: r.active ? Colors.white : null)),
+                      const SizedBox(height: 4),
+                      Text(r.time, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: r.active ? Colors.white : null)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(t('Kapat', 'Close'))),
+        ],
+      ),
+    );
+  }
+
   HomeSnapshot _homeSnapshot() {
     final now = DateTime.now();
     final entries = <PrayerEntry>[];
@@ -2797,6 +3009,11 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(t("Ayet-i Kerime", "Quran Verse")),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt, color: Colors.green),
+            tooltip: t("Sure Seç", "Select Surah"),
+            onPressed: _openSurahPicker,
+          ),
           IconButton(
             icon: const Icon(Icons.share, color: Colors.green),
             tooltip: t("Paylaş", "Share"),
@@ -2980,14 +3197,35 @@ class ZikirmatikScreen extends StatefulWidget {
   State<ZikirmatikScreen> createState() => _ZikirmatikScreenState();
 }
 
-class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
+class _ZikirmatikScreenState extends State<ZikirmatikScreen> with WidgetsBindingObserver {
   int _count = 0;
   SharedPreferences? _prefs;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initPrefsAndLoad();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Kilit ekranı sayaçından dönüldüğünde sayı orada değişmiş olabilir; tazele.
+    if (state == AppLifecycleState.resumed) _initPrefsAndLoad();
+  }
+
+  Future<void> _openLockScreenZikir() async {
+    await ringtoneChannel.invokeMethod('openLockScreenZikir', {
+      'title': t('Zikirmatik', 'Dhikr Counter'),
+      'resetLabel': t('Sıfırla', 'Reset'),
+      'closeLabel': t('Kapat', 'Close'),
+    });
   }
 
   Future<void> _initPrefsAndLoad() async {
@@ -3025,6 +3263,14 @@ class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          // Kilit ekranından sayma yalnızca Android'de desteklenir (iOS 3. parti uygulamalara
+          // kilit ekranının üstünde arayüz göstermeye izin vermez).
+          if (!kIsWeb && Platform.isAndroid)
+            IconButton(
+              onPressed: _openLockScreenZikir,
+              icon: const Icon(Icons.lock_clock, color: Colors.white70),
+              tooltip: t("Kilit Ekranında Aç", "Open on Lock Screen"),
+            ),
           TextButton.icon(
             onPressed: _resetCount,
             icon: const Icon(Icons.refresh, size: 18, color: Colors.white70),

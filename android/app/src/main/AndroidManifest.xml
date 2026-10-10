@@ -63,8 +63,27 @@
                 android:resource="@xml/prayer_widget_info" />
         </receiver>
 
+        <receiver android:name=".PrayerWidgetFullProvider" android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/prayer_widget_full_info" />
+        </receiver>
+
         <activity
             android:name=".AlarmActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+
+        <activity
+            android:name=".LockScreenZikirActivity"
             android:exported="false"
             android:launchMode="singleTask"
             android:taskAffinity=""

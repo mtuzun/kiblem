@@ -192,11 +192,12 @@ class _StarsPainter extends CustomPainter {
 class DateChip extends StatelessWidget {
   final HomeSnapshot s;
   final bool fill;
-  const DateChip(this.s, {super.key, this.fill = false});
+  final VoidCallback? onTap;
+  const DateChip(this.s, {super.key, this.fill = false, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
       decoration: BoxDecoration(
         color: fill ? Colors.black.withValues(alpha: 0.35) : null,
@@ -208,13 +209,19 @@ class DateChip extends StatelessWidget {
         child: Text("${s.gregorian}   ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 13)),
       ),
     );
+    if (onTap == null) return chip;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(borderRadius: BorderRadius.circular(16), onDoubleTap: onTap, child: chip),
+    );
   }
 }
 
 class CountdownView extends StatelessWidget {
   final AppTheme theme;
   final HomeSnapshot s;
-  const CountdownView({super.key, required this.theme, required this.s});
+  final VoidCallback? onDateTap;
+  const CountdownView({super.key, required this.theme, required this.s, this.onDateTap});
 
   List<String> get _parts {
     final p = s.timeLeft.split(':');
@@ -263,7 +270,7 @@ class CountdownView extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        DateChip(s),
+        DateChip(s, onTap: onDateTap),
       ],
     );
   }
@@ -304,7 +311,7 @@ class CountdownView extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        DateChip(s, fill: true),
+        DateChip(s, fill: true, onTap: onDateTap),
       ],
     );
   }
@@ -331,7 +338,10 @@ class CountdownView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text("${s.gregorian} - ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 15)),
+        InkWell(
+          onDoubleTap: onDateTap,
+          child: Text("${s.gregorian} - ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 15)),
+        ),
       ],
     );
   }
@@ -506,7 +516,11 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -523,8 +537,7 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(child: Align(alignment: Alignment.centerRight, child: WeatherStrip(theme: theme))),
+                    WeatherStrip(theme: theme),
                   ],
                 ),
                 const SizedBox(height: 20),

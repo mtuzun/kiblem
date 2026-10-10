@@ -193,7 +193,7 @@ class WeatherStrip extends StatelessWidget {
         final dark = theme.id == 'leather' || theme.id == 'night';
         final accent = theme.id == 'night' ? theme.accent : Colors.white;
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: theme.id == 'ocean'
               ? null
               : BoxDecoration(
@@ -218,7 +218,7 @@ class WeatherStrip extends StatelessWidget {
     final name = (isEnglish ? _daysEn : _daysTr)[d.date.weekday - 1];
     const style = TextStyle(fontSize: 11, height: 1.2);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -226,10 +226,12 @@ class WeatherStrip extends StatelessWidget {
             '$name ${d.date.day}/${d.date.month}',
             style: style.copyWith(color: color),
           ),
-          Icon(weatherIcon(d.symbol), size: 24, color: color),
+          const SizedBox(height: 1),
+          Icon(weatherIcon(d.symbol), size: 26, color: color),
+          const SizedBox(height: 1),
           Text(
             '${d.max}/${d.min}°',
-            style: style.copyWith(color: color, fontWeight: FontWeight.w600),
+            style: style.copyWith(color: color, fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ],
       ),
