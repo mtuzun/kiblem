@@ -3022,14 +3022,35 @@ class ZikirmatikScreen extends StatefulWidget {
   State<ZikirmatikScreen> createState() => _ZikirmatikScreenState();
 }
 
-class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
+class _ZikirmatikScreenState extends State<ZikirmatikScreen> with WidgetsBindingObserver {
   int _count = 0;
   SharedPreferences? _prefs;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initPrefsAndLoad();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Kilit ekranı sayaçından dönüldüğünde sayı orada değişmiş olabilir; tazele.
+    if (state == AppLifecycleState.resumed) _initPrefsAndLoad();
+  }
+
+  Future<void> _openLockScreenZikir() async {
+    await ringtoneChannel.invokeMethod('openLockScreenZikir', {
+      'title': t('Zikirmatik', 'Dhikr Counter'),
+      'resetLabel': t('Sıfırla', 'Reset'),
+      'closeLabel': t('Kapat', 'Close'),
+    });
   }
 
   Future<void> _initPrefsAndLoad() async {
@@ -3067,6 +3088,14 @@ class _ZikirmatikScreenState extends State<ZikirmatikScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          // Kilit ekranından sayma yalnızca Android'de desteklenir (iOS 3. parti uygulamalara
+          // kilit ekranının üstünde arayüz göstermeye izin vermez).
+          if (!kIsWeb && Platform.isAndroid)
+            IconButton(
+              onPressed: _openLockScreenZikir,
+              icon: const Icon(Icons.lock_clock, color: Colors.white70),
+              tooltip: t("Kilit Ekranında Aç", "Open on Lock Screen"),
+            ),
           TextButton.icon(
             onPressed: _resetCount,
             icon: const Icon(Icons.refresh, size: 18, color: Colors.white70),

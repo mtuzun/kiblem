@@ -73,6 +73,16 @@
             android:turnScreenOn="true"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
 
+        <activity
+            android:name=".LockScreenZikirActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+
         <receiver android:name=".AzanAlarmReceiver" android:exported="false" />
         <service
             android:name=".AzanRingerService"
