@@ -2168,7 +2168,22 @@ class _MainScreenState extends State<MainScreen> {
         }
       }
       await HomeWidget.saveWidgetData<String>('widget_prayer_timeline', jsonEncode(timeline));
+
+      // 2. (geniş) widget: günün tüm 6 vakti, aktif olanın sırası, miladi ve hicri tarih.
+      final snapshot = _homeSnapshot();
+      await HomeWidget.saveWidgetData<String>(
+        'widget_today_prayers',
+        jsonEncode([for (final p in snapshot.prayers) {'name': p.name, 'time': p.time}]),
+      );
+      await HomeWidget.saveWidgetData<int>(
+        'widget_active_index',
+        snapshot.prayers.indexWhere((p) => p.active),
+      );
+      await HomeWidget.saveWidgetData<String>('widget_date_gregorian', snapshot.gregorian);
+      await HomeWidget.saveWidgetData<String>('widget_date_hijri', snapshot.hijri);
+
       await HomeWidget.updateWidget(androidName: 'PrayerWidgetProvider');
+      await HomeWidget.updateWidget(androidName: 'PrayerWidgetFullProvider');
     } catch (e) {
       debugPrint("Widget güncellenemedi: $e");
     }
