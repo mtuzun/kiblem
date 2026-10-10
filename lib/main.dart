@@ -15,6 +15,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'friday_banner.dart';
 import 'weather.dart';
 import 'surah_picker.dart';
+import 'ayah_audio_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -558,6 +559,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void dispose() {
     _audioNoticeTimer?.cancel();
+    _internetWaitTimer?.cancel();
     dailyTabNotifier.removeListener(_onDailyTabChanged);
     langNotifier.removeListener(_onLangChanged);
     themeNotifier.removeListener(_onAppearanceChanged);
@@ -825,6 +827,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _stopAllAudio() async {
     _mealAfterQuran = false;
+    _cancelInternetWait();
     try {
       await audioPlayer?.stop();
       await tts.stop();
@@ -832,6 +835,43 @@ class _MainScreenState extends State<MainScreen> {
     _quranPlaying = false;
     _ttsSpeaking = false;
     _syncPlaying();
+  }
+
+  // --- Ağ kesintisinde donmayı önleme: indirip-sonra-çal + ön tampon ------------------
+  //
+  // Kur'an sesi artık doğrudan internetten akıtılmıyor (streaming); çalınmadan önce
+  // tamamen indirilip yerel dosyadan çalınıyor. Otomatik dinlemede sıradaki birkaç ayet
+  // arka planda önceden indirilir (yaklaşık 3-4 dakikalık bir "ön tampon"). Böylece kısa
+  // internet kesintileri (ör. metroda bir-iki durak arası) dinlemeyi hiç kesmez. İndirme
+  // başarısız olursa (uzun kesinti) otomatik mod durmadan beklemeye geçilir; bağlantı
+  // dönünce kullanıcı hiçbir şeye dokunmadan kaldığı ayetten devam eder.
+  Timer? _internetWaitTimer;
+
+  void _cancelInternetWait() {
+    _internetWaitTimer?.cancel();
+    _internetWaitTimer = null;
+  }
+
+  void _waitForInternetThenResume() {
+    _cancelInternetWait();
+    _showAudioNotice(t(
+      "İnternet bağlantısı bekleniyor; bağlanınca kaldığın yerden devam edecek.",
+      "Waiting for an internet connection; playback will resume automatically.",
+    ));
+    // Bildirim internet gelene kadar ekranda kalsın (varsayılan 6 sn. kapanmayı iptal et).
+    _audioNoticeTimer?.cancel();
+    _internetWaitTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!isAutoPlaying || !mounted) {
+        timer.cancel();
+        return;
+      }
+      if (await hasInternet()) {
+        timer.cancel();
+        _internetWaitTimer = null;
+        audioNotice.value = null;
+        await _startAyahAudio();
+      }
+    });
   }
 
   /// Seçili mealı telefonun sesli okuma özelliğiyle okutur.
@@ -905,9 +945,50 @@ class _MainScreenState extends State<MainScreen> {
       if (mode == 'both') await _speakMeal();
       return;
     }
+    _cancelInternetWait();
+
+    // Mobilde donmayı önlemek için ses akıtılmadan (streaming) önce tamamen indirilip
+    // diskten çalınır; web'de dosya sistemi erişimi olmadığından eskisi gibi akıtılır.
+    if (!kIsWeb) {
+      final n = displayedAyahNumber;
+      var localPath = n == null ? null : await AyahAudioCache.instance.localPath(n);
+      if (localPath == null) {
+        if (!await hasInternet()) {
+          // İnternet yok: otomatik modu durdurmak yerine bağlantı dönünce kendiliğinden
+          // devam edecek şekilde bekle (kullanıcı müdahalesi gerekmez).
+          if (isAutoPlaying) {
+            _waitForInternetThenResume();
+          } else {
+            _showAudioNotice();
+          }
+          _syncPlaying();
+          return;
+        }
+        localPath = n == null ? null : await AyahAudioCache.instance.ensureDownloaded(n, audioUrl);
+      }
+      if (localPath != null) {
+        _mealAfterQuran = mode == 'both';
+        _syncPlaying();
+        await audioPlayer!.play(DeviceFileSource(localPath));
+        if (n != null) {
+          // Otomatik dinlemede sıradaki birkaç ayeti arka planda önceden indir (ön tampon)
+          // ve çok geride kalan eski dosyaları sil.
+          if (isAutoPlaying) {
+            AyahAudioCache.instance.prefetchAhead(n, _cdnAudioUrlForAyah);
+          }
+          AyahAudioCache.instance.trim(n);
+        }
+        return;
+      }
+      // İndirme başarısız oldu (ör. kesinti indirme sırasında oldu); akışa (streaming) düş.
+    }
+
     if (!await hasInternet()) {
-      isAutoPlaying = false;
-      _showAudioNotice();
+      if (isAutoPlaying) {
+        _waitForInternetThenResume();
+      } else {
+        _showAudioNotice();
+      }
       _syncPlaying();
       return;
     }
@@ -915,6 +996,11 @@ class _MainScreenState extends State<MainScreen> {
     _syncPlaying();
     await audioPlayer!.play(UrlSource(audioUrl));
   }
+
+  /// cdn.islamic.network'teki Mişarî el-Afâsî okunuşu; offline_quran.dart'taki formülle aynı.
+  /// Ön yükleme (prefetch) ayet numarasından URL üretmek için bunu kullanır.
+  String _cdnAudioUrlForAyah(int ayahNumber) =>
+      'https://cdn.islamic.network/quran/audio/128/ar.alafasy/$ayahNumber.mp3';
 
   void _nextAyah() {
     if (displayedAyahNumber != null) {
