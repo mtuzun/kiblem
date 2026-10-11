@@ -3,13 +3,16 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Perşembe akşamından (akşam vakti) cuma ikindisine kadar ana ekranın üstünde gösterilen
-/// "Hayırlı Cumalar" afişi. 5 saniye sonra ya da dokunulunca kapanır; kapandıktan sonra uygulama yeniden açılana kadar çıkmaz.
+/// Perşembe akşamından (akşam vakti) cuma ikindisine kadar (ya da kandil/bayram günlerinde)
+/// ana ekranın üstünde gösterilen afiş. 5 saniye sonra ya da dokunulunca kapanır; kapandıktan
+/// sonra uygulama yeniden açılana kadar çıkmaz. Aynı anda birden fazla afiş gösterilebilsin diye
+/// (ör. hem cuma hem kandil gecesi), her afiş türü [dismissKey] ile kendi kapatma durumunu tutar.
 class FridayBanner extends StatefulWidget {
   final String text;
-  const FridayBanner({super.key, required this.text});
+  final String dismissKey;
+  const FridayBanner({super.key, required this.text, this.dismissKey = 'friday'});
 
-  static bool dismissedThisSession = false;
+  static final Set<String> _dismissedKeys = {};
 
   /// [maghrib] ve [asr] bugünün vakitleridir.
   static bool isActive(DateTime now, DateTime maghrib, DateTime asr) {
@@ -30,7 +33,7 @@ class _FridayBannerState extends State<FridayBanner> {
     super.initState();
     // Dokunulmazsa 5 saniye sonra kendiliğinden kaybolur.
     _hideTimer = Timer(const Duration(seconds: 5), () {
-      FridayBanner.dismissedThisSession = true;
+      FridayBanner._dismissedKeys.add(widget.dismissKey);
       if (mounted) setState(() {});
     });
   }
@@ -43,13 +46,13 @@ class _FridayBannerState extends State<FridayBanner> {
 
   @override
   Widget build(BuildContext context) {
-    if (FridayBanner.dismissedThisSession) return const SizedBox.shrink();
+    if (FridayBanner._dismissedKeys.contains(widget.dismissKey)) return const SizedBox.shrink();
     const gold = Color(0xFFF1D58A);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       // Afişe dokunmak onu bu oturum için kapatır.
       child: GestureDetector(
-        onTap: () => setState(() => FridayBanner.dismissedThisSession = true),
+        onTap: () => setState(() => FridayBanner._dismissedKeys.add(widget.dismissKey)),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(14),
           child: Container(

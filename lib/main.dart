@@ -2346,18 +2346,24 @@ class _MainScreenState extends State<MainScreen> {
     return FridayBanner.isActive(DateTime.now(), pt.maghrib, pt.asr);
   }
 
-  /// Ana ekranın üstündeki özel gün afişinin metni: önce kandil/bayram, yoksa cuma kontrol
-  /// edilir (ikisi aynı güne denk gelmez, ama öncelik sırası böyle kalsın).
-  String? get _specialBannerText {
+  /// Ana ekranın üstünde gösterilecek afişler: cuma ve kandil/bayram aynı geceye denk
+  /// gelirse (ör. kandil gecesi cumaya rastlarsa) ikisi de ayrı ayrı, alt alta gösterilir.
+  List<Widget> get _homeBanners {
+    final banners = <Widget>[];
     final pt = prayerTimes;
     if (pt != null) {
       final occasion = activeOccasion(DateTime.now(), pt.maghrib);
       if (occasion != null) {
-        return t('Mübarek ${occasion.nameTr}', 'Blessed ${occasion.nameEn}');
+        banners.add(FridayBanner(
+          dismissKey: 'occasion',
+          text: t(occasion.isEid ? 'Hayırlı Bayramlar' : 'Hayırlı Kandiller', occasion.isEid ? 'Happy Eid' : 'Blessed Night'),
+        ));
       }
     }
-    if (_showFridayBanner) return t('Hayırlı Cumalar', 'Blessed Friday');
-    return null;
+    if (_showFridayBanner) {
+      banners.add(FridayBanner(dismissKey: 'friday', text: t('Hayırlı Cumalar', 'Blessed Friday')));
+    }
+    return banners;
   }
 
   @override
@@ -2371,8 +2377,7 @@ class _MainScreenState extends State<MainScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              if (_specialBannerText != null)
-                FridayBanner(text: _specialBannerText!),
+              ..._homeBanners,
               _buildHeader(),
               const SizedBox(height: 10),
               Expanded(
