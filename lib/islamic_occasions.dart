@@ -27,10 +27,25 @@ class IslamicOccasion {
 
 DateTime _d(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
+/// hijri paketinin "hicri → miladi" (hijriToGregorian) ve "miladi → hicri" (fromDate, ekrandaki
+/// hicriDateString'in de kullandığı yöntem) dönüşümleri birbirinden ±birkaç gün sapabiliyor.
+/// Üstteki hicri tarihle (ve dolayısıyla kullanıcının gördüğü ayla) tutarlı olmak için, hicri
+/// (year, month, day)'a karşılık gelen gün, hijriToGregorian'ın verdiği tahminin etrafında
+/// fromDate ile taranarak bulunur.
+DateTime _hijriToGregorian(HijriCalendar cal, int year, int month, int day) {
+  final guess = _d(cal.hijriToGregorian(year, month, day));
+  for (var offset = -3; offset <= 3; offset++) {
+    final candidate = guess.add(Duration(days: offset));
+    final h = HijriCalendar.fromDate(candidate);
+    if (h.hYear == year && h.hMonth == month && h.hDay == day) return candidate;
+  }
+  return guess; // beklenmedik şekilde bulunamazsa ilk tahmine düşülür
+}
+
 /// [hijriYear] içindeki tüm kandil ve bayramları miladi karşılıklarıyla döner.
 List<IslamicOccasion> occasionsInHijriYear(int hijriYear) {
   final cal = HijriCalendar();
-  DateTime g(int month, int day) => _d(cal.hijriToGregorian(hijriYear, month, day));
+  DateTime g(int month, int day) => _hijriToGregorian(cal, hijriYear, month, day);
 
   // Regaib Kandili: Receb ayının ilk Cuma gecesi.
   final rajab1 = g(7, 1);
