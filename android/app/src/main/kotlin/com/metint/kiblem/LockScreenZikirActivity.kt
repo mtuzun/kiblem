@@ -41,7 +41,7 @@ class LockScreenZikirActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        count = prefs.getInt(KEY, 0)
+        count = readCount(prefs)
 
         val title = intent.getStringExtra("title") ?: "Zikirmatik"
         val resetLabel = intent.getStringExtra("resetLabel") ?: "Sıfırla"
@@ -107,15 +107,31 @@ class LockScreenZikirActivity : Activity() {
         setContentView(root)
     }
 
+    // Flutter'ın shared_preferences eklentisi int değerleri native tarafta Long olarak
+    // saklar (Dart'ın 64 bit int'iyle eşleşsin diye); bu yüzden burada da hep Long kullanılır.
+    // Flutter hiç çalışmadan bu anahtar hâlâ yoksa (olağandışı bir durum) ya da ileride bir
+    // nedenle Int olarak yazılmışsa diye getInt ile de bir yedek deneme yapılır.
+    private fun readCount(prefs: android.content.SharedPreferences): Int {
+        return try {
+            prefs.getLong(KEY, 0L).toInt()
+        } catch (e: ClassCastException) {
+            try {
+                prefs.getInt(KEY, 0)
+            } catch (e2: ClassCastException) {
+                0
+            }
+        }
+    }
+
     private fun increment(prefs: android.content.SharedPreferences) {
         count++
         countView.text = count.toString()
-        prefs.edit().putInt(KEY, count).apply()
+        prefs.edit().putLong(KEY, count.toLong()).apply()
     }
 
     private fun reset(prefs: android.content.SharedPreferences) {
         count = 0
         countView.text = "0"
-        prefs.edit().putInt(KEY, 0).apply()
+        prefs.edit().putLong(KEY, 0L).apply()
     }
 }
