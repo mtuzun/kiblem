@@ -2626,6 +2626,15 @@ class _MainScreenState extends State<MainScreen> {
                   children: [
                     Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
                     _buildOfflineDownloadIcon(),
+                    // Çift dokunmayı keşfetmeyenler için: tam ekranı tek dokunuşla da açar.
+                    InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => _showAyahDialog(context),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.open_in_full, size: 15, color: Colors.grey),
+                      ),
+                    ),
                   ],
                 ),
                 Row(
@@ -2641,7 +2650,18 @@ class _MainScreenState extends State<MainScreen> {
                       key: _ayahRefKey,
                       child: Text(_ayahRef(dailyAyahData!), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     ),
-                    const SizedBox(width: 5),
+                    const SizedBox(width: 2),
+                    // Çift dokunmayı keşfetmeyenler için: sure/ayet seçim listesini tek
+                    // dokunuşla da açar.
+                    InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: _openSurahPicker,
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.list_alt, size: 15, color: Colors.grey),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
                     IconButton(
                       icon: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                       padding: EdgeInsets.zero,

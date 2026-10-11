@@ -197,6 +197,22 @@ class DateChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Metne çift dokununca da açılır (alışkın kullanıcılar için), ama bunu kimsenin
+    // tahmin etmesi gerekmesin diye yanında küçük, tek dokunuşla açılan bir takvim
+    // simgesi de durur.
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text("${s.gregorian}   ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+        ),
+        if (onTap != null) ...[
+          const SizedBox(width: 6),
+          Icon(Icons.calendar_month, color: Colors.white.withValues(alpha: 0.85), size: 16),
+        ],
+      ],
+    );
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
       decoration: BoxDecoration(
@@ -204,15 +220,12 @@ class DateChip extends StatelessWidget {
         border: Border.all(color: Colors.white70, width: fill ? 2 : 1),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text("${s.gregorian}   ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 13)),
-      ),
+      child: row,
     );
     if (onTap == null) return chip;
     return Material(
       color: Colors.transparent,
-      child: InkWell(borderRadius: BorderRadius.circular(16), onDoubleTap: onTap, child: chip),
+      child: InkWell(borderRadius: BorderRadius.circular(16), onTap: onTap, onDoubleTap: onTap, child: chip),
     );
   }
 }
