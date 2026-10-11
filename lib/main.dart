@@ -2466,7 +2466,15 @@ class _MainScreenState extends State<MainScreen> {
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  Container(
+                  Builder(builder: (context) {
+                    // Liste zemini, Ayarlar > Klasik Tema Rengi'nde seçilen renk tonunu (veya
+                    // "Otomatik" ise günün rengini) hafif şeffaf ve koyu bir tonda kullanır;
+                    // yazı rengi bu zeminin parlaklığına göre siyah/beyaz seçilir.
+                    final dropdownBg = paletteColor(colorThemeNotifier.value, isDark: true, alpha: 0.8);
+                    final itemTextColor = ThemeData.estimateBrightnessForColor(dropdownBg) == Brightness.dark
+                        ? Colors.white
+                        : Colors.black;
+                    return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white70),
@@ -2475,9 +2483,15 @@ class _MainScreenState extends State<MainScreen> {
                     child: DropdownButton<String>(
                       value: currentCity,
                       icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-                      dropdownColor: const Color(0xFF6DAF89),
+                      dropdownColor: dropdownBg,
                       underline: const SizedBox(), // Remove default underline
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      style: TextStyle(color: itemTextColor, fontSize: 16),
+                      selectedItemBuilder: (context) => _cities.map((city) {
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(city, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                        );
+                      }).toList(),
                       items: _cities.map((String city) {
                         return DropdownMenuItem<String>(
                           value: city,
@@ -2495,7 +2509,8 @@ class _MainScreenState extends State<MainScreen> {
                         }
                       },
                     ),
-                  ),
+                  );
+                  }),
                   // Hava durumu: her temada şehir kutusunun sağında, temaya uygun görünümle.
                   WeatherStrip(theme: appThemeById(themeNotifier.value)),
                 ],

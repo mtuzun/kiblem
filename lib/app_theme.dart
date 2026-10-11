@@ -115,10 +115,9 @@ class ThemeBackground extends StatelessWidget {
         );
       default:
         final dayOfYear = DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
-        final hue = paletteById(colorThemeNotifier.value).hue ?? (dayOfYear * (360 / 365)) % 360;
         final isDark = Theme.of(context).brightness == Brightness.dark;
         return Container(
-          color: HSLColor.fromAHSL(1.0, hue, 0.4, isDark ? 0.28 : 0.6).toColor(),
+          color: paletteColor(colorThemeNotifier.value, isDark: isDark),
           child: CustomPaint(painter: MotifPainter(dayOfYear), child: child),
         );
     }
@@ -684,14 +683,19 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
 // ---------------------------------------------------------------------------
 
 /// Renk paleti: [hue] null ise günlük değişen otomatik renk kullanılır.
+/// [fixedLightness] verilmişse arka plan bu değeri sabit kullanır (koyu seçenekler için);
+/// verilmezse eski davranış korunur (açık modda daha açık, koyu modda daha koyu).
 class AppPalette {
   final String id;
   final String tr;
   final String en;
   final double? hue;
-  const AppPalette(this.id, this.tr, this.en, this.hue);
+  final double saturation;
+  final double? fixedLightness;
+  const AppPalette(this.id, this.tr, this.en, this.hue, {this.saturation = 0.4, this.fixedLightness});
 
-  Color get swatch => HSLColor.fromAHSL(1.0, hue ?? 0, hue == null ? 0.0 : 0.4, 0.55).toColor();
+  Color get swatch =>
+      HSLColor.fromAHSL(1.0, hue ?? 0, hue == null ? 0.0 : saturation, fixedLightness ?? 0.55).toColor();
 }
 
 const List<AppPalette> appPalettes = [
@@ -702,10 +706,29 @@ const List<AppPalette> appPalettes = [
   AppPalette('navy', 'Lacivert', 'Navy', 235),
   AppPalette('orange', 'Turuncu', 'Orange', 25),
   AppPalette('rose', 'Gül', 'Rose', 335),
+  AppPalette('black', 'Siyah', 'Black', 0, saturation: 0.0, fixedLightness: 0.14),
+  AppPalette('charcoal', 'Füme', 'Charcoal', 220, saturation: 0.12, fixedLightness: 0.18),
+  AppPalette('darkgreen', 'Koyu Yeşil', 'Dark Green', 150, saturation: 0.4, fixedLightness: 0.16),
 ];
 
 AppPalette paletteById(String? id) =>
     appPalettes.firstWhere((p) => p.id == id, orElse: () => appPalettes.first);
+
+/// Günün hicri olmayan, miladi takvime göre otomatik rengi (yıl içindeki güne bağlı).
+double autoHueOfToday() {
+  final dayOfYear = DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
+  return (dayOfYear * (360 / 365)) % 360;
+}
+
+/// [id] ile seçilen klasik tema rengini (veya "Otomatik" ise günün rengini) döner.
+/// [isDark] yalnızca sabit bir [AppPalette.fixedLightness] tanımlanmamış paletler için
+/// kullanılır; koyu seçeneklerin parlaklığı cihaz temasından bağımsız sabittir.
+Color paletteColor(String? id, {required bool isDark, double alpha = 1.0}) {
+  final p = paletteById(id);
+  final hue = p.hue ?? autoHueOfToday();
+  final lightness = p.fixedLightness ?? (isDark ? 0.28 : 0.6);
+  return HSLColor.fromAHSL(alpha, hue, p.saturation, lightness).toColor();
+}
 
 final ValueNotifier<String> colorThemeNotifier = ValueNotifier<String>('auto');
 final ValueNotifier<String> figureNotifier = ValueNotifier<String>('mosque');
