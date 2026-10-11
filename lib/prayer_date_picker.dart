@@ -1,9 +1,13 @@
 import 'package:adhan/adhan.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 import 'l10n.dart';
 import 'islamic_occasions.dart';
+
+const List<String> _weekdaysTr = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+const List<String> _weekdaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /// Tarih çipine çift dokununca açılan tam ekran takvim. Varsayılan olarak bugün seçilidir;
 /// üstte seçili günün namaz vakitleri, altta tam ekran bir takvim gösterilir. Başka bir güne
@@ -31,6 +35,7 @@ class PrayerDatePickerScreen extends StatefulWidget {
 
 class _PrayerDatePickerScreenState extends State<PrayerDatePickerScreen> {
   late DateTime _selected;
+  late DateTime _focusedDay;
   late PrayerTimes _times;
 
   @override
@@ -38,8 +43,11 @@ class _PrayerDatePickerScreenState extends State<PrayerDatePickerScreen> {
     super.initState();
     final now = DateTime.now();
     _selected = DateTime(now.year, now.month, now.day);
+    _focusedDay = _selected;
     _recompute();
   }
+
+  bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
   void _recompute() {
     _times = PrayerTimes(
@@ -108,14 +116,59 @@ class _PrayerDatePickerScreenState extends State<PrayerDatePickerScreen> {
           const Divider(height: 1),
           Expanded(
             child: SingleChildScrollView(
-              child: CalendarDatePicker(
-                initialDate: _selected,
-                firstDate: DateTime(_selected.year - 2),
-                lastDate: DateTime(_selected.year + 3),
-                onDateChanged: (d) => setState(() {
-                  _selected = d;
+              child: TableCalendar(
+                firstDay: DateTime(_selected.year - 2),
+                lastDay: DateTime(_selected.year + 3),
+                focusedDay: _focusedDay,
+                currentDay: DateTime.now(),
+                startingDayOfWeek: StartingDayOfWeek.monday,
+                selectedDayPredicate: (day) => _isSameDay(day, _selected),
+                onDaySelected: (selected, focused) => setState(() {
+                  _selected = selected;
+                  _focusedDay = focused;
                   _recompute();
                 }),
+                onPageChanged: (focused) => _focusedDay = focused,
+                // Hangi günün kandil/bayram olduğunu takvimin genel görünümünde (Google
+                // Calendar'daki gibi) küçük bir işaretle gösterir.
+                eventLoader: (day) {
+                  final o = occasionOnDate(day);
+                  return o == null ? const [] : [o];
+                },
+                headerStyle: HeaderStyle(
+                  formatButtonVisible: false,
+                  titleCentered: true,
+                  titleTextFormatter: (date, locale) => '${longMonth(date.month)} ${date.year}',
+                ),
+                calendarBuilders: CalendarBuilders(
+                  dowBuilder: (context, day) => Center(
+                    child: Text(
+                      (isEnglish ? _weekdaysEn : _weekdaysTr)[day.weekday - 1],
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
+                  ),
+                  markerBuilder: (context, day, events) {
+                    if (events.isEmpty) return null;
+                    return Positioned(
+                      bottom: 2,
+                      child: Container(
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(color: Color(0xFF6DAF89), shape: BoxShape.circle),
+                      ),
+                    );
+                  },
+                ),
+                calendarStyle: CalendarStyle(
+                  todayDecoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                    shape: BoxShape.circle,
+                  ),
+                  selectedDecoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
               ),
             ),
           ),
