@@ -7,13 +7,16 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Zikirmatik'i kilit ekranının üstünde açar; telefonu kilitlemeden ekrana dokunarak sayılabilir.
+ * Zikirmatik'i kilit ekranının üstünde açar; telefonu kilitlemeden ekrana dokunarak ya da
+ * ses tuşlarıyla (telefon cepteyken bile) sayılabilir. Güç/kilitle tuşu Android tarafından
+ * uygulamalara hiç verilmediği için (doğrudan sistemde işlenir) o tuş desteklenmiyor.
  * Sayaç, Flutter tarafındaki Zikirmatik ekranıyla aynı SharedPreferences anahtarını (zikir_count)
  * kullanır, böylece iki ekran da aynı sayıyı gösterir.
  */
@@ -24,6 +27,7 @@ class LockScreenZikirActivity : Activity() {
     }
 
     private lateinit var countView: TextView
+    private lateinit var prefs: android.content.SharedPreferences
     private var count = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +44,7 @@ class LockScreenZikirActivity : Activity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         count = readCount(prefs)
 
         val title = intent.getStringExtra("title") ?: "Zikirmatik"
@@ -105,6 +109,24 @@ class LockScreenZikirActivity : Activity() {
             setOnClickListener { increment(prefs) }
         }
         setContentView(root)
+    }
+
+    // Ses tuşlarıyla (telefon cepteyken bile) sayma: tuşa her basışta +1, ses seviyesi
+    // değişmesin diye olay burada tüketilir (true döndürülür).
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            increment(prefs)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    // Tuş bırakılırken de sistemin ses göstergesini açmaması için bu olay da tüketilir.
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     // Flutter'ın shared_preferences eklentisi int değerleri native tarafta Long olarak
