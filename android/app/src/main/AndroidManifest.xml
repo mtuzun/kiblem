@@ -73,6 +73,11 @@
         </receiver>
 
         <activity
+            android:name=".WidgetSettingsActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
             android:name=".AlarmActivity"
             android:exported="false"
             android:launchMode="singleTask"

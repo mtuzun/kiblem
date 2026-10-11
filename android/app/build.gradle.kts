@@ -28,6 +28,16 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Conscrypt uses OS-name lowercasing to locate its native library.
+            // Turkish Windows otherwise turns "Windows" into "wındows".
+            it.systemProperty("user.language", "en")
+            it.systemProperty("user.country", "US")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.metint.kiblem"
         // You can update the following values to match your application needs.
@@ -66,4 +76,6 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
 }

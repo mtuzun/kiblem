@@ -1,16 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/widget_container"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@drawable/widget_background"
-    android:paddingLeft="12dp"
-    android:paddingTop="8dp"
-    android:paddingRight="12dp"
-    android:paddingBottom="8dp">
-
+    android:layout_height="match_parent">
+  <ImageView
+      android:id="@+id/widget_background_image"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:src="@drawable/widget_background"
+      android:scaleType="fitXY"
+      android:importantForAccessibility="no" />
+  <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:orientation="vertical"
+      android:paddingLeft="12dp"
+      android:paddingTop="8dp"
+      android:paddingRight="44dp"
+      android:paddingBottom="8dp">
     <TextView
         android:id="@+id/widget_label"
         android:layout_width="match_parent"
@@ -27,7 +34,6 @@
         android:textColor="#D9FFFFFF"
         android:textSize="12sp"
         tools:text="İkindi için kalan süre" />
-
     <TextView
         android:id="@+id/widget_countdown"
         android:layout_width="match_parent"
@@ -44,4 +50,16 @@
         android:textSize="20sp"
         android:textStyle="bold"
         tools:text="2 sa 20 dk" />
-</LinearLayout>
+  </LinearLayout>
+  <ImageButton
+      android:id="@+id/widget_settings_button"
+      android:layout_width="36dp"
+      android:layout_height="36dp"
+      android:layout_gravity="top|end"
+      android:layout_marginRight="4dp"
+      android:layout_marginTop="2dp"
+      android:background="@android:color/transparent"
+      android:src="@drawable/widget_settings_icon"
+      android:padding="8dp"
+      android:contentDescription="Widget görünüm ayarları" />
+</FrameLayout>

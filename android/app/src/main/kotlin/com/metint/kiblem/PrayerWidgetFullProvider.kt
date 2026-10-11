@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
@@ -45,6 +46,17 @@ class PrayerWidgetFullProvider : HomeWidgetProvider() {
         super.onDisabled(context)
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetAppearance.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager,
+                                         appWidgetId: Int, newOptions: Bundle) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        onUpdate(context, appWidgetManager, intArrayOf(appWidgetId))
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -62,55 +74,80 @@ class PrayerWidgetFullProvider : HomeWidgetProvider() {
         val dateGregorian = widgetData.getString("widget_date_gregorian", "") ?: ""
         val dateHijri = widgetData.getString("widget_date_hijri", "") ?: ""
 
-        val views = RemoteViews(context.packageName, R.layout.prayer_widget_full_layout).apply {
-            setTextViewText(
-                R.id.widget_full_label,
-                if (english) "Time until $prayerName" else "$prayerName vaktine kalan süre",
-            )
-            setTextViewText(R.id.widget_full_date, "$dateGregorian   $dateHijri".trim())
+        appWidgetIds.forEach { widgetId ->
+            val sizing = WidgetSizing(context, appWidgetManager.getAppWidgetOptions(widgetId))
+            val layout = if (sizing.narrow) R.layout.prayer_widget_full_narrow_layout else R.layout.prayer_widget_full_layout
+            val label = if (sizing.height < 100 * context.resources.configuration.fontScale) prayerName
+                else if (english) "Time until $prayerName" else "$prayerName vaktine kalan süre"
+            val views = RemoteViews(context.packageName, layout).apply {
+                setTextViewText(
+                    R.id.widget_full_label,
+                    label,
+                )
+                setTextViewText(R.id.widget_full_date, "$dateGregorian   $dateHijri".trim())
 
-            val remainingMillis = (prayerTimestamp ?: 0L) - now
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && remainingMillis > 0) {
-                setViewVisibility(R.id.widget_full_chronometer, android.view.View.VISIBLE)
-                setViewVisibility(R.id.widget_full_countdown_fallback, android.view.View.GONE)
-                val base = SystemClock.elapsedRealtime() + remainingMillis
-                setChronometer(R.id.widget_full_chronometer, base, null, true)
-                setChronometerCountDown(R.id.widget_full_chronometer, true)
-            } else {
-                setViewVisibility(R.id.widget_full_chronometer, android.view.View.GONE)
-                setViewVisibility(R.id.widget_full_countdown_fallback, android.view.View.VISIBLE)
-                setTextViewText(R.id.widget_full_countdown_fallback, formatRemaining(remainingMillis, english))
+                val remainingMillis = (prayerTimestamp ?: 0L) - now
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && remainingMillis > 0) {
+                    setViewVisibility(R.id.widget_full_chronometer, android.view.View.VISIBLE)
+                    setViewVisibility(R.id.widget_full_countdown_fallback, android.view.View.GONE)
+                    val base = SystemClock.elapsedRealtime() + remainingMillis
+                    setChronometer(R.id.widget_full_chronometer, base, null, true)
+                    setChronometerCountDown(R.id.widget_full_chronometer, true)
+                } else {
+                    setViewVisibility(R.id.widget_full_chronometer, android.view.View.GONE)
+                    setViewVisibility(R.id.widget_full_countdown_fallback, android.view.View.VISIBLE)
+                    setTextViewText(R.id.widget_full_countdown_fallback, formatRemaining(remainingMillis, english))
+                }
+
+                val slotIds = intArrayOf(
+                    R.id.widget_slot_0, R.id.widget_slot_1, R.id.widget_slot_2,
+                    R.id.widget_slot_3, R.id.widget_slot_4, R.id.widget_slot_5,
+                )
+                val nameIds = intArrayOf(
+                    R.id.widget_slot_name_0, R.id.widget_slot_name_1, R.id.widget_slot_name_2,
+                    R.id.widget_slot_name_3, R.id.widget_slot_name_4, R.id.widget_slot_name_5,
+                )
+                val timeIds = intArrayOf(
+                    R.id.widget_slot_time_0, R.id.widget_slot_time_1, R.id.widget_slot_time_2,
+                    R.id.widget_slot_time_3, R.id.widget_slot_time_4, R.id.widget_slot_time_5,
+                )
+                for (i in 0 until 6) {
+                    val entry = todayPrayers?.optJSONObject(i)
+                    setTextViewText(nameIds[i], entry?.optString("name") ?: "--")
+                    setTextViewText(timeIds[i], entry?.optString("time") ?: "--:--")
+                    val active = i == activeIndex
+                    setInt(slotIds[i], "setBackgroundResource", if (active) R.drawable.widget_slot_active else R.drawable.widget_slot_inactive)
+                    val nameColor = if (active) Color.WHITE else Color.parseColor("#4B5563")
+                    val timeColor = if (active) Color.WHITE else Color.parseColor("#111827")
+                    setTextColor(nameIds[i], nameColor)
+                    setTextColor(timeIds[i], timeColor)
+                }
+
+                sizing.applyFull(this, nameIds, timeIds,
+                    (0 until 6).map { todayPrayers?.optJSONObject(it)?.optString("name") ?: "--" },
+                    (0 until 6).map { todayPrayers?.optJSONObject(it)?.optString("time") ?: "--:--" },
+                    label,
+                    "$dateGregorian   $dateHijri".trim())
+
+                val pendingIntent = HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java)
+                setOnClickPendingIntent(R.id.widget_full_container, pendingIntent)
+                WidgetAppearance.apply(context, widgetId, this, nameIds + timeIds + intArrayOf(
+                    R.id.widget_full_label, R.id.widget_full_date, R.id.widget_full_chronometer,
+                    R.id.widget_full_countdown_fallback,
+                ), english)
+                val style = WidgetAppearance.load(context, widgetId)
+                setInt(R.id.widget_full_date, "setBackgroundResource", R.drawable.widget_date_chip)
+                if (style.customized || style.transparent) {
+                    setInt(R.id.widget_full_date, "setBackgroundColor", Color.TRANSPARENT)
+                    slotIds.forEachIndexed { index, slotId ->
+                        val highlight = if (index == activeIndex)
+                            (style.foreground and 0x00FFFFFF) or 0x30000000 else Color.TRANSPARENT
+                        setInt(slotId, "setBackgroundColor", highlight)
+                    }
+                }
             }
-
-            val slotIds = intArrayOf(
-                R.id.widget_slot_0, R.id.widget_slot_1, R.id.widget_slot_2,
-                R.id.widget_slot_3, R.id.widget_slot_4, R.id.widget_slot_5,
-            )
-            val nameIds = intArrayOf(
-                R.id.widget_slot_name_0, R.id.widget_slot_name_1, R.id.widget_slot_name_2,
-                R.id.widget_slot_name_3, R.id.widget_slot_name_4, R.id.widget_slot_name_5,
-            )
-            val timeIds = intArrayOf(
-                R.id.widget_slot_time_0, R.id.widget_slot_time_1, R.id.widget_slot_time_2,
-                R.id.widget_slot_time_3, R.id.widget_slot_time_4, R.id.widget_slot_time_5,
-            )
-            for (i in 0 until 6) {
-                val entry = todayPrayers?.optJSONObject(i)
-                setTextViewText(nameIds[i], entry?.optString("name") ?: "--")
-                setTextViewText(timeIds[i], entry?.optString("time") ?: "--:--")
-                val active = i == activeIndex
-                setInt(slotIds[i], "setBackgroundResource", if (active) R.drawable.widget_slot_active else R.drawable.widget_slot_inactive)
-                val nameColor = if (active) Color.WHITE else Color.parseColor("#4B5563")
-                val timeColor = if (active) Color.WHITE else Color.parseColor("#111827")
-                setTextColor(nameIds[i], nameColor)
-                setTextColor(timeIds[i], timeColor)
-            }
-
-            val pendingIntent = HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java)
-            setOnClickPendingIntent(R.id.widget_full_container, pendingIntent)
+            appWidgetManager.updateAppWidget(widgetId, views)
         }
-
-        appWidgetIds.forEach { widgetId -> appWidgetManager.updateAppWidget(widgetId, views) }
 
         if (appWidgetIds.isNotEmpty()) {
             val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager

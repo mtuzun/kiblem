@@ -39,6 +39,11 @@ class PrayerWidgetProvider : HomeWidgetProvider() {
         super.onDisabled(context)
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetAppearance.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
     override fun onAppWidgetOptionsChanged(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -67,8 +72,7 @@ class PrayerWidgetProvider : HomeWidgetProvider() {
         appWidgetIds.forEach { widgetId ->
             val options = appWidgetManager.getAppWidgetOptions(widgetId)
             // Launcher dimensions are in dp, regardless of screen pixel density.
-            val compact = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 40) < 64 ||
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 110) < 240
+            val compact = WidgetSizing(context, options).compact
             val layout = if (compact) R.layout.prayer_widget_compact_layout else R.layout.prayer_widget_layout
             val views = RemoteViews(context.packageName, layout).apply {
                 val prayerName = nextPrayer?.optString("name")
@@ -103,6 +107,9 @@ class PrayerWidgetProvider : HomeWidgetProvider() {
 
                 val pendingIntent = HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java)
                 setOnClickPendingIntent(R.id.widget_container, pendingIntent)
+                val textIds = if (compact) intArrayOf(R.id.widget_countdown)
+                    else intArrayOf(R.id.widget_label, R.id.widget_countdown)
+                WidgetAppearance.apply(context, widgetId, this, textIds, english)
             }
 
             appWidgetManager.updateAppWidget(widgetId, views)
