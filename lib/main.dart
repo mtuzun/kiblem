@@ -17,6 +17,7 @@ import 'weather.dart';
 import 'surah_picker.dart';
 import 'ayah_audio_cache.dart';
 import 'prayer_date_picker.dart';
+import 'islamic_occasions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -555,6 +556,7 @@ class _MainScreenState extends State<MainScreen> {
     _loadBannerAd();
     _checkForUpdate();
     _loadAzanReminderSetting();
+    _scheduleOccasionNotifications();
   }
 
   @override
@@ -1769,10 +1771,59 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  /// Yaklaşan kandil geceleri ve bayramlar için, her birinin sabahı (yerel saat 08:00)
+  /// hatırlatıcı bir bildirim kurar. Hem Android'de hem iOS'ta çalışır; ezan hatırlatıcılarıyla
+  /// (id 0-41) çakışmasın diye 7000'den başlayan bir id aralığı kullanılır. Uygulama her
+  /// açıldığında çağrılır; aynı id'yle tekrar kurmak var olanın üzerine yazar (güvenli).
+  Future<void> _scheduleOccasionNotifications() async {
+    if (kIsWeb) return;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var id = 7000;
+    for (final o in nearbyOccasions(now)) {
+      final at = DateTime(o.date.year, o.date.month, o.date.day, 8, 0);
+      if (DateTime(o.date.year, o.date.month, o.date.day).isBefore(today) || at.isBefore(now)) {
+        id++;
+        continue;
+      }
+      final title = o.isEid
+          ? t('Bugün ${o.nameTr} başlıyor', 'Today ${o.nameEn} begins')
+          : t('Bu gece ${o.nameTr}', 'Tonight is ${o.nameEn}');
+      final body = o.isEid ? t('Hayırlı bayramlar.', 'Happy holiday.') : t('Hayırlı kandiller.', 'Blessed night.');
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id: id,
+          scheduledDate: tz.TZDateTime.from(at, tz.local),
+          title: title,
+          body: body,
+          notificationDetails: const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'islamic_occasions',
+              'Kandil ve Bayram Hatırlatıcı',
+              channelDescription: 'Kandil geceleri ve dini bayramların sabahı hatırlatma bildirimi gönderir.',
+              importance: Importance.high,
+              priority: Priority.high,
+            ),
+            iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true, presentBanner: true, presentList: true),
+          ),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+      } catch (e) {
+        debugPrint('Kandil/bayram bildirimi kurulamadı: $e');
+      }
+      id++;
+    }
+  }
+
   Future<void> _cancelAzanReminders() async {
     if (kIsWeb) return;
     if (_isIos) {
-      await flutterLocalNotificationsPlugin.cancelAll();
+      // cancelAll() kullanılmaz: kandil/bayram bildirimleri de aynı eklentiyi (7000+ id
+      // aralığında) kullanıyor, onları silmeden yalnızca ezan hatırlatıcılarının id
+      // aralığı (_scheduleIosReminders: en fazla 7 gün x 6 vakit = 42 id) iptal edilir.
+      for (var id = 0; id < 7 * _prayerAlarmCount; id++) {
+        await flutterLocalNotificationsPlugin.cancel(id: id);
+      }
       return;
     }
     for (int id = 0; id < _prayerAlarmCount; id++) {
@@ -2295,6 +2346,20 @@ class _MainScreenState extends State<MainScreen> {
     return FridayBanner.isActive(DateTime.now(), pt.maghrib, pt.asr);
   }
 
+  /// Ana ekranın üstündeki özel gün afişinin metni: önce kandil/bayram, yoksa cuma kontrol
+  /// edilir (ikisi aynı güne denk gelmez, ama öncelik sırası böyle kalsın).
+  String? get _specialBannerText {
+    final pt = prayerTimes;
+    if (pt != null) {
+      final occasion = activeOccasion(DateTime.now(), pt.maghrib);
+      if (occasion != null) {
+        return t('Mübarek ${occasion.nameTr}', 'Blessed ${occasion.nameEn}');
+      }
+    }
+    if (_showFridayBanner) return t('Hayırlı Cumalar', 'Blessed Friday');
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = appThemeById(themeNotifier.value);
@@ -2306,8 +2371,8 @@ class _MainScreenState extends State<MainScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              if (_showFridayBanner)
-                FridayBanner(text: t('Hayırlı Cumalar', 'Blessed Friday')),
+              if (_specialBannerText != null)
+                FridayBanner(text: _specialBannerText!),
               _buildHeader(),
               const SizedBox(height: 10),
               Expanded(

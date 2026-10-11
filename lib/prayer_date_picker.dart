@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'l10n.dart';
+import 'islamic_occasions.dart';
 
 /// Tarih çipine çift dokununca açılan tam ekran takvim. Varsayılan olarak bugün seçilidir;
 /// üstte seçili günün namaz vakitleri, altta tam ekran bir takvim gösterilir. Başka bir güne
@@ -59,6 +60,7 @@ class _PrayerDatePickerScreenState extends State<PrayerDatePickerScreen> {
     final format = DateFormat('HH:mm');
     final gregorian = "${_selected.day.toString().padLeft(2, '0')} ${longMonth(_selected.month)} ${_selected.year}";
     final hijri = hijriDateString(_selected);
+    final occasion = occasionOnDate(_selected);
 
     return Scaffold(
       appBar: AppBar(title: Text(t('Namaz Vakitleri Takvimi', 'Prayer Times Calendar'))),
@@ -71,6 +73,20 @@ class _PrayerDatePickerScreenState extends State<PrayerDatePickerScreen> {
             child: Column(
               children: [
                 Text("$gregorian   •   $hijri", style: const TextStyle(fontWeight: FontWeight.w600)),
+                if (occasion != null) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6DAF89),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      t(occasion.nameTr, occasion.nameEn),
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Wrap(
                   alignment: WrapAlignment.center,
