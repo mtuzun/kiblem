@@ -134,7 +134,7 @@ class MyApp extends StatelessWidget {
       valueListenable: themeModeNotifier,
       builder: (context, mode, _) {
         return MaterialApp(
-          title: 'Kıble ve Namaz Rehberim',
+          title: 'Kuran, Kıble ve Namaz Rehberim',
           debugShowCheckedModeBanner: false,
           themeMode: mode,
           theme: ThemeData(
