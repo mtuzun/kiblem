@@ -238,6 +238,7 @@ class _MainScreenState extends State<MainScreen> {
   int? displayedAyahNumber;
   
   AudioPlayer? audioPlayer;
+  AudioPlayer? _soundPreviewPlayer;
   bool isAutoPlaying = false;
 
   // Ses: Kur'an okunuşu (internetten), meal (telefonun sesli okuması / TTS) veya ikisi sırayla.
@@ -570,6 +571,7 @@ class _MainScreenState extends State<MainScreen> {
     figureNotifier.removeListener(_onAppearanceChanged);
     timer?.cancel();
     audioPlayer?.dispose();
+    _soundPreviewPlayer?.dispose();
     tts.stop();
     _audioServiceStopTimer?.cancel();
     if (_audioServiceRunning && !kIsWeb && Platform.isAndroid) {
@@ -1383,6 +1385,23 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  static const _beepUri = 'android.resource://com.metint.kiblem/raw/beep';
+  static const _ziiilUri = 'android.resource://com.metint.kiblem/raw/ziiil';
+  // Uygulamayla gelen sesler: Android raw kaynağı -> önizleme için Flutter asset'i.
+  static const _bundledSounds = {_beepUri: 'beep.wav', _ziiilUri: 'ziiil.wav'};
+
+  // Alarm sesini seçmeden/değiştirmeden önce dinlemek için. uri null ise sistem varsayılanı
+  // kullanılıyordur ve uygulama içinden çalınamaz.
+  Future<void> _previewSound(String? uri) async {
+    if (uri == null) return;
+    try {
+      final player = _soundPreviewPlayer ??= AudioPlayer();
+      await player.stop();
+      final asset = _bundledSounds[uri];
+      await player.play(asset != null ? AssetSource(asset) : UrlSource(uri));
+    } catch (_) {}
+  }
+
   Future<void> _pickAlarmSound(int i) async {
     if (kIsWeb || !Platform.isAndroid) return;
     final source = await showModalBottomSheet<String>(
@@ -1395,7 +1414,23 @@ class _MainScreenState extends State<MainScreen> {
               leading: const Icon(Icons.notifications_active_outlined),
               title: Text(t("Varsayılan (Bip)", "Default (Beep)")),
               subtitle: Text(t("Uygulamayla gelen kısa, 1 saniyelik bip sesi", "A short, 1-second beep built into the app")),
+              trailing: IconButton(
+                icon: const Icon(Icons.play_circle_outline),
+                tooltip: t("Dinle", "Preview"),
+                onPressed: () => _previewSound(_beepUri),
+              ),
               onTap: () => Navigator.pop(context, 'beep'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: Text(t("Zil", "Chime")),
+              subtitle: Text(t("Uygulamayla gelen, yaklaşık 3 saniyelik zil sesi", "A chime of about 3 seconds built into the app")),
+              trailing: IconButton(
+                icon: const Icon(Icons.play_circle_outline),
+                tooltip: t("Dinle", "Preview"),
+                onPressed: () => _previewSound(_ziiilUri),
+              ),
+              onTap: () => Navigator.pop(context, 'ziiil'),
             ),
             ListTile(
               leading: const Icon(Icons.music_note_outlined),
@@ -1418,10 +1453,18 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
     );
+    _soundPreviewPlayer?.stop();
     if (source == 'beep') {
       setState(() {
-        prayerAlarms[i].soundUri = 'android.resource://com.metint.kiblem/raw/beep';
+        prayerAlarms[i].soundUri = _beepUri;
         prayerAlarms[i].soundTitle = t('Varsayılan (Bip)', 'Default (Beep)');
+      });
+      await _savePrayerAlarm(i);
+      await _scheduleAzanReminders();
+    } else if (source == 'ziiil') {
+      setState(() {
+        prayerAlarms[i].soundUri = _ziiilUri;
+        prayerAlarms[i].soundTitle = t('Zil', 'Chime');
       });
       await _savePrayerAlarm(i);
       await _scheduleAzanReminders();
@@ -1942,6 +1985,13 @@ class _MainScreenState extends State<MainScreen> {
                         child: Text(_minutesLabel(alarm.minutes, alarm.after), style: linkStyle),
                       ),
                     ),
+                    if (!_isIos && alarm.soundUri != null)
+                      IconButton(
+                        icon: const Icon(Icons.play_circle_outline, size: 22),
+                        tooltip: t("Dinle", "Preview"),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _previewSound(alarm.soundUri),
+                      ),
                     if (!_isIos)
                       InkWell(
                         onTap: () async {
