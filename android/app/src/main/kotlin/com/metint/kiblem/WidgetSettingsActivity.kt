@@ -14,7 +14,6 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
-import android.widget.Button
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -32,8 +31,11 @@ class WidgetSettingsActivity : Activity() {
     private var prayerName = "İkindi"
     private lateinit var preview: Preview
     private lateinit var transparentSwitch: Switch
-    private lateinit var backgroundButton: Button
-    private lateinit var foregroundButton: Button
+    private lateinit var backgroundDot: View
+    private lateinit var backgroundLabel: TextView
+    private lateinit var foregroundDot: View
+    private lateinit var foregroundLabel: TextView
+    private lateinit var backgroundRow: LinearLayout
     private val colors = intArrayOf(
         0xFF3E8E7E.toInt(), 0xFF166534.toInt(), 0xFF14B8A6.toInt(), 0xFF22C55E.toInt(),
         0xFFFFFFFF.toInt(), 0xFF111827.toInt(), 0xFF6B7280.toInt(), 0xFFE5E7EB.toInt(),
@@ -126,37 +128,86 @@ class WidgetSettingsActivity : Activity() {
             }
         }
         column.addView(transparentSwitch)
-        backgroundButton = Button(this).apply { setOnClickListener { showPalette(true) } }
-        foregroundButton = Button(this).apply { setOnClickListener { showPalette(false) } }
-        column.addView(backgroundButton)
-        column.addView(foregroundButton)
-        column.addView(Button(this).apply {
-            text = tr("Varsayılana dön", "Reset to default")
-            setOnClickListener {
-                // Avoid the switch listener marking the restored default as customized.
-                style = WidgetStyle()
-                transparentSwitch.isChecked = false
-                style = WidgetStyle()
-                updatePreview()
-            }
+        val dotSize = 22
+        backgroundDot = colorDot(style.background, dotSize)
+        foregroundDot = colorDot(style.foreground, dotSize)
+        backgroundLabel = pillLabel()
+        foregroundLabel = pillLabel()
+        backgroundRow = pillButton(backgroundDot, backgroundLabel, filled = false) { showPalette(true) }
+        column.addView(backgroundRow)
+        column.addView(pillButton(foregroundDot, foregroundLabel, filled = false) { showPalette(false) })
+        column.addView(pillButton(glyphDot("↺", dotSize), pillLabel(tr("Varsayılana dön", "Reset to default")), filled = false) {
+            // Avoid the switch listener marking the restored default as customized.
+            style = WidgetStyle()
+            transparentSwitch.isChecked = false
+            style = WidgetStyle()
+            updatePreview()
         })
-        column.addView(Button(this).apply {
-            text = tr("Kaydet", "Save")
-            setOnClickListener {
-                if (AppWidgetManager.getInstance(this@WidgetSettingsActivity).getAppWidgetInfo(widgetId) == null) {
-                    finish()
-                    return@setOnClickListener
-                }
-                WidgetAppearance.save(this@WidgetSettingsActivity, widgetId, style)
-                WidgetAppearance.refresh(this@WidgetSettingsActivity, widgetId)
-                Toast.makeText(this@WidgetSettingsActivity, tr("Widget görünümü kaydedildi", "Widget appearance saved"), Toast.LENGTH_SHORT).show()
+        column.addView(pillButton(glyphDot("✓", dotSize, bg = Color.WHITE, fg = 0xFF3E8E7E.toInt()),
+            pillLabel(tr("Kaydet", "Save"), Color.WHITE), filled = true) {
+            if (AppWidgetManager.getInstance(this@WidgetSettingsActivity).getAppWidgetInfo(widgetId) == null) {
                 finish()
+                return@pillButton
             }
+            WidgetAppearance.save(this@WidgetSettingsActivity, widgetId, style)
+            WidgetAppearance.refresh(this@WidgetSettingsActivity, widgetId)
+            Toast.makeText(this@WidgetSettingsActivity, tr("Widget görünümü kaydedildi", "Widget appearance saved"), Toast.LENGTH_SHORT).show()
+            finish()
         })
-        column.addView(Button(this).apply { text = tr("Vazgeç", "Cancel"); setOnClickListener { finish() } })
+        column.addView(pillButton(glyphDot("✕", dotSize), pillLabel(tr("Vazgeç", "Cancel")), filled = false) { finish() })
         setContentView(scroll)
         updatePreview()
     }
+
+    /** Seçili rengi gösteren yuvarlak nokta; palet/sıfırla butonlarının ikonu olarak kullanılır. */
+    private fun colorDot(color: Int, size: Int): View = View(this).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+            setStroke(dp(1), 0x33000000)
+        }
+        layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+    }
+
+    /** Metin tabanlı ikon (↺ ✓ ✕) taşıyan yuvarlak rozet. */
+    private fun glyphDot(glyph: String, size: Int, bg: Int = 0xFFE5E7EB.toInt(), fg: Int = 0xFF111827.toInt()): View =
+        TextView(this).apply {
+            text = glyph
+            gravity = Gravity.CENTER
+            textSize = 13f
+            setTextColor(fg)
+            includeFontPadding = false
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(bg) }
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+
+    private fun pillLabel(text: String = "", color: Int = 0xFF111827.toInt()) = TextView(this).apply {
+        this.text = text
+        textSize = 16f
+        setTextColor(color)
+    }
+
+    /** İkon + yazı içeren, uçları yuvarlatılmış hap şeklinde tıklanabilir satır. */
+    private fun pillButton(icon: View, labelView: TextView, filled: Boolean, onClick: () -> Unit): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(28).toFloat()
+                setColor(if (filled) 0xFF3E8E7E.toInt() else 0xFFF3F4F6.toInt())
+            }
+            setPadding(dp(16), dp(12), dp(20), dp(12))
+            (icon.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(12)
+            addView(icon)
+            addView(labelView)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+            setOnClickListener { onClick() }
+        }
 
     private fun colorName(color: Int): String {
         val index = colors.indexOf(color)
@@ -164,9 +215,12 @@ class WidgetSettingsActivity : Activity() {
     }
 
     private fun updatePreview() {
-        backgroundButton.text = "${tr("Zemin rengi", "Background color")}: ${colorName(style.background)}"
-        backgroundButton.isEnabled = !style.transparent
-        foregroundButton.text = "${tr("Yazı rengi", "Text color")}: ${colorName(style.foreground)}"
+        backgroundLabel.text = "${tr("Zemin rengi", "Background color")}: ${colorName(style.background)}"
+        (backgroundDot.background as GradientDrawable).setColor(style.background)
+        backgroundRow.isEnabled = !style.transparent
+        backgroundRow.alpha = if (style.transparent) 0.4f else 1f
+        foregroundLabel.text = "${tr("Yazı rengi", "Text color")}: ${colorName(style.foreground)}"
+        (foregroundDot.background as GradientDrawable).setColor(style.foreground)
         preview.invalidate()
     }
 

@@ -65,8 +65,21 @@ class PrayerWidgetFullProvider : HomeWidgetProvider() {
     ) {
         val now = System.currentTimeMillis()
         val english = widgetData.getString("widget_language", "tr") == "en"
-        val prayerName = widgetData.getString("widget_prayer_name", null) ?: "--"
-        val prayerTimestamp = widgetData.getString("widget_prayer_timestamp", null)?.toLongOrNull()
+        // "widget_prayer_timeline" holds the next 7 days of prayers and keeps working even if
+        // the app hasn't run since the single "widget_prayer_name"/"widget_prayer_timestamp"
+        // snapshot expired (otherwise the countdown freezes and shows the "--:--:--" fallback).
+        val timeline = runCatching {
+            widgetData.getString("widget_prayer_timeline", null)?.let { JSONArray(it) }
+        }.getOrNull()
+        val nextFromTimeline = timeline?.let { entries ->
+            (0 until entries.length()).asSequence()
+                .map { entries.getJSONObject(it) }
+                .firstOrNull { it.optLong("timestamp") > now }
+        }
+        val prayerName = nextFromTimeline?.optString("name")
+            ?: widgetData.getString("widget_prayer_name", null) ?: "--"
+        val prayerTimestamp = nextFromTimeline?.optLong("timestamp")?.takeIf { it > 0 }
+            ?: widgetData.getString("widget_prayer_timestamp", null)?.toLongOrNull()
         val activeIndex = widgetData.getInt("widget_active_index", -1)
         val todayPrayers = runCatching {
             widgetData.getString("widget_today_prayers", null)?.let { JSONArray(it) }

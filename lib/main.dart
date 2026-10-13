@@ -1392,6 +1392,12 @@ class _MainScreenState extends State<MainScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: Text(t("Varsayılan (Bip)", "Default (Beep)")),
+              subtitle: Text(t("Uygulamayla gelen kısa, 1 saniyelik bip sesi", "A short, 1-second beep built into the app")),
+              onTap: () => Navigator.pop(context, 'beep'),
+            ),
+            ListTile(
               leading: const Icon(Icons.music_note_outlined),
               title: Text(t("Zil sesi seç", "Choose ringtone")),
               onTap: () => Navigator.pop(context, 'ringtone'),
@@ -1405,14 +1411,21 @@ class _MainScreenState extends State<MainScreen> {
             if (prayerAlarms[i].soundUri != null)
               ListTile(
                 leading: const Icon(Icons.restart_alt),
-                title: Text(t("Varsayılan sese dön", "Reset to default")),
+                title: Text(t("Sistem varsayılanına dön", "Reset to system default")),
                 onTap: () => Navigator.pop(context, 'reset'),
               ),
           ],
         ),
       ),
     );
-    if (source == 'ringtone') {
+    if (source == 'beep') {
+      setState(() {
+        prayerAlarms[i].soundUri = 'android.resource://com.metint.kiblem/raw/beep';
+        prayerAlarms[i].soundTitle = t('Varsayılan (Bip)', 'Default (Beep)');
+      });
+      await _savePrayerAlarm(i);
+      await _scheduleAzanReminders();
+    } else if (source == 'ringtone') {
       await _pickRingtoneSound(i);
     } else if (source == 'file') {
       await _pickFileSound(i);
