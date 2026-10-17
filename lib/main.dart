@@ -2359,7 +2359,9 @@ class _MainScreenState extends State<MainScreen> {
           for (final prayer in [Prayer.fajr, Prayer.sunrise, Prayer.dhuhr,
             Prayer.asr, Prayer.maghrib, Prayer.isha]) {
             final time = times.timeForPrayer(prayer);
-            if (time == null || !time.isAfter(now)) continue;
+            // Today's already-passed prayers stay in: the wide widget derives its list of
+            // today's prayers and the highlighted one from the timeline while the app is closed.
+            if (time == null) continue;
             timeline.add({
               'name': _getPrayerName(prayer),
               'time': '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',

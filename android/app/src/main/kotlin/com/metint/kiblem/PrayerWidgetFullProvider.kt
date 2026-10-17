@@ -15,6 +15,7 @@ import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 import org.json.JSONArray
+import java.util.Calendar
 
 /**
  * Geniş namaz vakitleri widget'ı: canlı geri sayım, miladi/hicri tarih ve günün 6 vakti.
@@ -80,10 +81,33 @@ class PrayerWidgetFullProvider : HomeWidgetProvider() {
             ?: widgetData.getString("widget_prayer_name", null) ?: "--"
         val prayerTimestamp = nextFromTimeline?.optLong("timestamp")?.takeIf { it > 0 }
             ?: widgetData.getString("widget_prayer_timestamp", null)?.toLongOrNull()
-        val activeIndex = widgetData.getInt("widget_active_index", -1)
-        val todayPrayers = runCatching {
+        // Today's list and the highlighted slot are derived from the timeline so they stay
+        // correct as prayer times pass while the app is closed; the values the app saved last
+        // are only a fallback (they go stale, which highlighted the wrong prayer).
+        val todayFromTimeline = timeline?.let { entries ->
+            val start = Calendar.getInstance().apply {
+                timeInMillis = now
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val end = Calendar.getInstance().apply { timeInMillis = start; add(Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+            (0 until entries.length()).map { entries.getJSONObject(it) }
+                .filter { it.optLong("timestamp") in start until end }
+                .sortedBy { it.optLong("timestamp") }
+                .takeIf { it.size == 6 }
+        }
+        val todayPrayers = if (todayFromTimeline != null) JSONArray(todayFromTimeline) else runCatching {
             widgetData.getString("widget_today_prayers", null)?.let { JSONArray(it) }
         }.getOrNull()
+        val activeIndex = if (todayFromTimeline != null) {
+            // Before fajr (or after isha) the last prayer, isha, is still the current one.
+            todayFromTimeline.indexOfLast { it.optLong("timestamp") <= now }.let { if (it < 0) 5 else it }
+        } else {
+            // No full day in the timeline yet (app not opened since the update): the active
+            // prayer is the one right before the upcoming prayer the countdown already tracks.
+            val nextIndex = (0 until 6).firstOrNull { todayPrayers?.optJSONObject(it)?.optString("name") == prayerName }
+            if (nextIndex != null) (nextIndex + 5) % 6 else widgetData.getInt("widget_active_index", -1)
+        }
         val dateGregorian = widgetData.getString("widget_date_gregorian", "") ?: ""
         val dateHijri = widgetData.getString("widget_date_hijri", "") ?: ""
 
