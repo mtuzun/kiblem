@@ -176,6 +176,22 @@ IconData weatherIcon(String symbol) {
   return Icons.wb_sunny;
 }
 
+/// Simgenin altına yazılan kısa açıklama; simge tek başına her zaman anlaşılır olmadığı için.
+/// Kontroller [weatherIcon] ile aynı sırada yapılır.
+String weatherLabel(String symbol) {
+  if (symbol.contains('thunder')) return t('Fırtına', 'Storm');
+  if (symbol.contains('snow')) return t('Karlı', 'Snowy');
+  if (symbol.contains('sleet')) return t('Sulu kar', 'Sleet');
+  if (symbol.contains('heavyrain') || symbol.contains('showers')) return t('Sağanak', 'Showers');
+  if (symbol.contains('lightrain')) return t('Az yağmurlu', 'Light rain');
+  if (symbol.contains('rain')) return t('Yağmurlu', 'Rainy');
+  if (symbol == 'fog') return t('Sisli', 'Foggy');
+  if (symbol == 'cloudy') return t('Bulutlu', 'Cloudy');
+  if (symbol == 'partlycloudy') return t('Az bulutlu', 'Partly cloudy');
+  if (symbol == 'fair') return t('Açık', 'Fair');
+  return t('Güneşli', 'Sunny');
+}
+
 const _daysTr = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 const _daysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -230,6 +246,12 @@ class WeatherStrip extends StatelessWidget {
           ),
           const SizedBox(height: 1),
           Icon(weatherIcon(d.symbol), size: 26 * k, color: color),
+          Text(
+            weatherLabel(d.symbol),
+            maxLines: 1,
+            softWrap: false,
+            style: style.copyWith(color: color.withValues(alpha: 0.9), fontSize: 10 * k),
+          ),
           const SizedBox(height: 1),
           Text(
             '${d.max}/${d.min}°',
