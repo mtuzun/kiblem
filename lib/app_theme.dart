@@ -202,9 +202,13 @@ class DateChip extends StatelessWidget {
     final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text("${s.gregorian}   ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+        // Flexible olmazsa FittedBox sınırsız genişlik alır, küçülemez ve dar ekranda
+        // ya da büyük yazı boyutunda tarih kutudan taşar.
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text("${s.gregorian}   ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+          ),
         ),
         if (onTap != null) ...[
           const SizedBox(width: 6),
@@ -292,15 +296,20 @@ class CountdownView extends StatelessWidget {
       width: 96,
       height: 96,
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(digits, style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w500, color: Colors.black87, height: 1.0)),
-          ),
-          Text(caption, style: const TextStyle(fontSize: 12, color: Colors.black87)),
-        ],
+      // Kutu sabit boyutlu olduğu için içindeki yazı ölçeği sınırlanır; aksi halde büyük
+      // yazı boyutunda rakam ve alt yazı birlikte kutudan taşar.
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.3,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(digits, style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w500, color: Colors.black87, height: 1.0)),
+            ),
+            Text(caption, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+          ],
+        ),
       ),
     );
   }
