@@ -58,7 +58,7 @@ object WidgetAppearance {
         textIds.forEach { id ->
             val color = if (style.customized) style.foreground else when (id) {
                 R.id.widget_label, R.id.widget_full_label -> 0xD9FFFFFF.toInt()
-                R.id.widget_countdown, R.id.widget_full_date,
+                R.id.widget_countdown, R.id.widget_full_date, R.id.widget_full_weather, R.id.widget_full_clock,
                 R.id.widget_full_chronometer, R.id.widget_full_countdown_fallback -> Color.WHITE
                 else -> null // Prayer slot defaults are set by the full provider.
             }

@@ -86,6 +86,44 @@ void main() {
     }
   }
 
+  // Deri temasında "saat" / "dk" yazısı rakamın yanında durmalı ve sayaç bloğu alçak kalmalı;
+  // yoksa ana ekranın alt kısmındaki ayrıntılar ekrana sığmaz.
+  testWidgets('leather sayaç kutuları: yazı rakamın yanında, blok alçak', (tester) async {
+    tester.view.physicalSize = const Size(720, 1600);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+
+    final snapshot = HomeSnapshot(
+      city: 'İstanbul',
+      nextPrayerName: 'Akşam',
+      timeLeft: '02:08:30',
+      now: DateTime(2026, 10, 18, 10, 45),
+      prayers: const [],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(fontFamily: 'Roboto'),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              width: 320,
+              child: CountdownView(theme: appThemeById('leather'), s: snapshot, onDateTap: () {}),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final digits = tester.getRect(find.text('02'));
+    final caption = tester.getRect(find.text('saat'));
+    expect(caption.left, greaterThanOrEqualTo(digits.right), reason: 'yazı rakamın sağında olmalı');
+    expect((caption.bottom - digits.bottom).abs(), lessThan(12), reason: 'yazı rakamla aynı satırda olmalı');
+    final label = tester.getRect(find.text('Akşam vaktine kalan süre'));
+    final chip = tester.getRect(find.byType(DateChip));
+    expect(chip.bottom - label.top, lessThan(150), reason: 'etiketten tarih kutusunun altına kadar yükseklik');
+  });
+
   // Vakitleri düz metin olarak sıralayan temalarda (Okyanus, Siyah) vakitler dar alanda tek tek
   // küçülüp birbirine yapışmamalı.
   for (final themeId in ['ocean', 'black']) {

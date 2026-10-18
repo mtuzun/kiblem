@@ -19,7 +19,8 @@ internal class WidgetSizing(context: Context, options: Bundle) {
     val compact = width / fontScale < 240 || height / fontScale < 64
 
     fun applyFull(views: RemoteViews, nameIds: IntArray, timeIds: IntArray,
-                  names: List<String>, times: List<String>, label: String, date: String) {
+                  names: List<String>, times: List<String>, label: String, date: String,
+                  weather: String? = null) {
         val showLabel = true
         val showDate = height / fontScale >= if (narrow) 150 else 120
         views.setViewVisibility(R.id.widget_full_label, if (showLabel) View.VISIBLE else View.GONE)
@@ -45,6 +46,29 @@ internal class WidgetSizing(context: Context, options: Bundle) {
         text(R.id.widget_full_date, date, 12f, width - 48f)
         text(R.id.widget_full_chronometer, "00:00:00", 30f, width - 24f)
         text(R.id.widget_full_countdown_fallback, "00:00:00", 30f, width - 24f)
+        // Today's weather sits in the top row, left of the settings button, in whatever width the
+        // label leaves free; it is hidden when that space is too small to read.
+        val labelPaint = Paint().apply { textSize = 13f * scale * fontScale }
+        val labelWidth = minOf(labelPaint.measureText(label), width - 56f)
+        val weatherWidth = width - 56f - labelWidth - 6f
+        val showWeather = weather != null && weatherWidth >= 50f
+        views.setViewVisibility(R.id.widget_full_weather, if (showWeather) View.VISIBLE else View.GONE)
+        if (showWeather && weather != null) {
+            views.setTextViewText(R.id.widget_full_weather, weather)
+            text(R.id.widget_full_weather, weather, 12f, weatherWidth)
+        }
+        // The current time sits to the right of the countdown, in whatever width the countdown
+        // leaves free; it is hidden when that space is too small to read.
+        val countdownPaint = Paint().apply {
+            textSize = 30f * scale * fontScale
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        }
+        val countdownText = countdownPaint.measureText("00:00:00").coerceAtLeast(1f)
+        val countdownWidth = countdownText * minOf(1f, (width - 24f) / countdownText)
+        val clockWidth = width - 24f - countdownWidth - 8f
+        val showClock = clockWidth >= 56f
+        views.setViewVisibility(R.id.widget_full_clock, if (showClock) View.VISIBLE else View.GONE)
+        if (showClock) text(R.id.widget_full_clock, "00:00", 22f, clockWidth)
         val cellWidth = (width - 24f) / (if (narrow) 3 else 6) - 4f
         nameIds.forEachIndexed { i, id -> text(id, names[i], 10f, cellWidth) }
         timeIds.forEachIndexed { i, id -> text(id, times[i], 12f, cellWidth) }

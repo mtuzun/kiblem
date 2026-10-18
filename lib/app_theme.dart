@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'cloud_sky.dart';
 import 'figures.dart';
 import 'l10n.dart';
 import 'weather.dart';
@@ -28,6 +29,7 @@ const List<AppTheme> appThemes = [
   AppTheme('night', 'Gece', 'Night', Color(0xFFE8C468)),
   AppTheme('sunset', 'Gün Batımı', 'Sunset', Color(0xFFFFD27A)),
   AppTheme('black', 'Siyah', 'Black', Color(0xFF4DD0A8)),
+  AppTheme('sky', 'Gökyüzü', 'Sky', Color(0xFFBFE3FF)),
   // Yüksek kontrast, çok büyük yazı ve alt alta vakit satırları: yaşlılar ve düşük çözünürlüklü
   // ya da küçük ekranlar için.
   AppTheme('senior', 'Kolay Okuma', 'Easy Read', Color(0xFFFFD60A)),
@@ -129,6 +131,19 @@ class ThemeBackground extends StatelessWidget {
             ),
           ),
           child: CustomPaint(painter: const _SunsetPainter(), child: child),
+        );
+      case 'sky':
+        // Koyu lacivert gökyüzü; üst kısımda yavaşça kayan bulutlar (bkz. cloud_sky.dart).
+        return Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF46607F), Color(0xFF1B3556), Color(0xFF0B1B33)],
+              stops: [0.0, 0.45, 1.0],
+            ),
+          ),
+          child: CloudSky(child: child),
         );
       case 'senior':
         // Düz siyah zemin üzerinde beyaz yazı: en yüksek kontrast.
@@ -309,6 +324,7 @@ class CountdownView extends StatelessWidget {
         return _flip();
       case 'ocean':
       case 'black':
+      case 'sky':
         return _thin();
       case 'senior':
         return _senior();
@@ -373,23 +389,23 @@ class CountdownView extends StatelessWidget {
     );
   }
 
+  /// Alçak beyaz kutu: rakam solda, "saat" / "dk" yazısı rakamın yanında (altında değil); böylece
+  /// kutu kısa kalır ve ana ekranın alt kısmındaki ayrıntılar da ekrana sığar.
   Widget _flipBox(String digits, String caption) {
     return Container(
-      width: 96,
-      height: 96,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
-      // Kutu sabit boyutlu olduğu için içindeki yazı ölçeği sınırlanır; aksi halde büyük
-      // yazı boyutunda rakam ve alt yazı birlikte kutudan taşar.
+      // Büyük yazı boyutunda kutunun aşırı büyümemesi için içerideki yazı ölçeği sınırlanır.
       child: MediaQuery.withClampedTextScaling(
         maxScaleFactor: 1.3,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
           children: [
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(digits, style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w500, color: Colors.black87, height: 1.0)),
-            ),
-            Text(caption, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+            Text(digits, style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w500, color: Colors.black87, height: 1.1)),
+            const SizedBox(width: 6),
+            Text(caption, style: const TextStyle(fontSize: 13, color: Colors.black87)),
           ],
         ),
       ),
@@ -401,19 +417,23 @@ class CountdownView extends StatelessWidget {
     return Column(
       children: [
         Text(_label, style: const TextStyle(color: Colors.white, fontSize: 15)),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _flipBox(p[0], t("saat", "hr")),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Text(":", style: TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
-            ),
-            _flipBox(p[1], t("dk", "min")),
-          ],
+        const SizedBox(height: 8),
+        // İki kutu dar ekranda yan yana sığmazsa bütün satır birlikte küçülür.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _flipBox(p[0], t("saat", "hr")),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text(":", style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+              ),
+              _flipBox(p[1], t("dk", "min")),
+            ],
+          ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 10),
         DateChip(s, fill: true, onTap: onDateTap),
       ],
     );
@@ -466,6 +486,7 @@ class PrayerTimesView extends StatelessWidget {
       case 'black':
         return _text();
       case 'sunset':
+      case 'sky':
         return _glass();
       case 'senior':
         return _list();
@@ -529,7 +550,9 @@ class PrayerTimesView extends StatelessWidget {
     if (p.length < 6) return const SizedBox.shrink();
     Widget card(PrayerEntry e) {
       final active = e.active;
-      final fg = active ? const Color(0xFF3A2A66) : Colors.white;
+      // Aktif kart vurgu renginde dolu olur; yazısı o rengin üzerinde okunacak koyu tonda seçilir.
+      final activeFg = theme.id == 'sky' ? const Color(0xFF0B1B33) : const Color(0xFF3A2A66);
+      final fg = active ? activeFg : Colors.white;
       return Expanded(
         child: Container(
           margin: const EdgeInsets.all(4),
@@ -622,7 +645,7 @@ class PrayerTimesView extends StatelessWidget {
   Widget _grid() {
     Widget line(List<PrayerEntry> items) => Row(
           children: [
-            for (final e in items) Expanded(child: _card(e, nameSize: 20, timeSize: 26, vPad: 16)),
+            for (final e in items) Expanded(child: _card(e, nameSize: 18, timeSize: 24, vPad: 11)),
           ],
         );
     final p = s.prayers;

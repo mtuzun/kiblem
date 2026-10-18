@@ -15,7 +15,10 @@ import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 import org.json.JSONArray
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * Geniş namaz vakitleri widget'ı: canlı geri sayım, miladi/hicri tarih ve günün 6 vakti.
@@ -108,6 +111,13 @@ class PrayerWidgetFullProvider : HomeWidgetProvider() {
             val nextIndex = (0 until 6).firstOrNull { todayPrayers?.optJSONObject(it)?.optString("name") == prayerName }
             if (nextIndex != null) (nextIndex + 5) % 6 else widgetData.getInt("widget_active_index", -1)
         }
+        // "widget_weather" holds the next days' forecast; today's entry is picked by date so the
+        // widget keeps the right day after midnight even if the app hasn't run since.
+        val weatherToday = runCatching {
+            val days = JSONArray(widgetData.getString("widget_weather", null) ?: return@runCatching null)
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(now))
+            (0 until days.length()).map { days.getJSONObject(it) }.firstOrNull { it.optString("d") == today }
+        }.getOrNull()?.let { "${it.optString("label")} · ${it.optInt("max")}/${it.optInt("min")}°" }
         val dateGregorian = widgetData.getString("widget_date_gregorian", "") ?: ""
         val dateHijri = widgetData.getString("widget_date_hijri", "") ?: ""
 
@@ -164,13 +174,14 @@ class PrayerWidgetFullProvider : HomeWidgetProvider() {
                     (0 until 6).map { todayPrayers?.optJSONObject(it)?.optString("name") ?: "--" },
                     (0 until 6).map { todayPrayers?.optJSONObject(it)?.optString("time") ?: "--:--" },
                     label,
-                    "$dateGregorian   $dateHijri".trim())
+                    "$dateGregorian   $dateHijri".trim(),
+                    weatherToday)
 
                 val pendingIntent = HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java)
                 setOnClickPendingIntent(R.id.widget_full_container, pendingIntent)
                 WidgetAppearance.apply(context, widgetId, this, nameIds + timeIds + intArrayOf(
                     R.id.widget_full_label, R.id.widget_full_date, R.id.widget_full_chronometer,
-                    R.id.widget_full_countdown_fallback,
+                    R.id.widget_full_countdown_fallback, R.id.widget_full_weather, R.id.widget_full_clock,
                 ), english)
                 val style = WidgetAppearance.load(context, widgetId)
                 setInt(R.id.widget_full_date, "setBackgroundResource", R.drawable.widget_date_chip)

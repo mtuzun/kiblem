@@ -496,6 +496,7 @@ class _MainScreenState extends State<MainScreen> {
     themeNotifier.addListener(_onAppearanceChanged);
     colorThemeNotifier.addListener(_onAppearanceChanged);
     figureNotifier.addListener(_onAppearanceChanged);
+    weatherNotifier.addListener(_pushWeatherToWidget);
     _cities.sort();
     // Önce kayıtlı şehirle hesapla; konum izni verilmiş ve internet varsa konumu bulup güncelle.
     _loadSavedCity().then((_) {
@@ -569,6 +570,7 @@ class _MainScreenState extends State<MainScreen> {
     themeNotifier.removeListener(_onAppearanceChanged);
     colorThemeNotifier.removeListener(_onAppearanceChanged);
     figureNotifier.removeListener(_onAppearanceChanged);
+    weatherNotifier.removeListener(_pushWeatherToWidget);
     timer?.cancel();
     audioPlayer?.dispose();
     _soundPreviewPlayer?.dispose();
@@ -2384,11 +2386,40 @@ class _MainScreenState extends State<MainScreen> {
       );
       await HomeWidget.saveWidgetData<String>('widget_date_gregorian', snapshot.gregorian);
       await HomeWidget.saveWidgetData<String>('widget_date_hijri', snapshot.hijri);
+      await _saveWeatherForWidget();
 
       await HomeWidget.updateWidget(androidName: 'PrayerWidgetProvider');
       await HomeWidget.updateWidget(androidName: 'PrayerWidgetFullProvider');
     } catch (e) {
       debugPrint("Widget güncellenemedi: $e");
+    }
+  }
+
+  /// Büyük widget günün hava durumunu gösterir. Birkaç günlük tahmin tarihiyle birlikte yazılır;
+  /// widget bugünün kaydını tarihe göre seçer, böylece uygulama kapalıyken gece yarısından
+  /// sonra da doğru gün görünür.
+  Future<void> _saveWeatherForWidget() async {
+    await HomeWidget.saveWidgetData<String>(
+      'widget_weather',
+      jsonEncode([
+        for (final d in weatherNotifier.value)
+          {
+            'd': '${d.date.year}-${d.date.month.toString().padLeft(2, '0')}-${d.date.day.toString().padLeft(2, '0')}',
+            'max': d.max,
+            'min': d.min,
+            'label': weatherLabel(d.symbol),
+          },
+      ]),
+    );
+  }
+
+  Future<void> _pushWeatherToWidget() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _saveWeatherForWidget();
+      await HomeWidget.updateWidget(androidName: 'PrayerWidgetFullProvider');
+    } catch (e) {
+      debugPrint("Hava durumu widget'a yazılamadı: $e");
     }
   }
 

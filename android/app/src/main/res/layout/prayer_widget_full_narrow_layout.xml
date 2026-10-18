@@ -15,17 +15,42 @@
       android:layout_height="match_parent"
       android:orientation="vertical"
       android:padding="12dp">
-    <TextView
-        android:id="@+id/widget_full_label"
+    <!-- Üst satır: solda etiket, sağda (ayar düğmesinin yanında) günün hava durumu. -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingRight="32dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingRight="32dp">
+    <TextView
+        android:id="@+id/widget_full_label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
         android:maxLines="1"
         android:ellipsize="end"
         android:includeFontPadding="false"
         android:textColor="#D9FFFFFF"
         android:textSize="13sp"
         tools:text="İmsak vaktine kalan süre" />
+    <TextView
+        android:id="@+id/widget_full_weather"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="6dp"
+        android:maxLines="1"
+        android:includeFontPadding="false"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone"
+        tools:text="Açık · 14/14°" />
+    </LinearLayout>
+    <!-- Geri sayım satırı: solda süre, sağda şu anki saat. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
     <Chronometer android:id="@+id/widget_full_chronometer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:includeFontPadding="false" android:textColor="#FFFFFF" android:textSize="30sp" android:textStyle="bold" android:fontFamily="monospace" tools:text="06:39:12" />
     <!-- API 24 altı cihazlarda canlı Chronometer yerine bu statik metin kullanılır. -->
     <TextView
@@ -40,6 +65,23 @@
         android:fontFamily="monospace"
         android:visibility="gone"
         tools:text="06:39:12" />
+    <TextClock
+        android:id="@+id/widget_full_clock"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="8dp"
+        android:gravity="end"
+        android:format12Hour="HH:mm"
+        android:format24Hour="HH:mm"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#FFFFFF"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        tools:text="16:25" />
+    </LinearLayout>
     <TextView
         android:id="@+id/widget_full_date"
         android:layout_width="wrap_content"
