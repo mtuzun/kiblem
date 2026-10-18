@@ -190,8 +190,9 @@ class WeatherStrip extends StatelessWidget {
       valueListenable: weatherNotifier,
       builder: (context, days, _) {
         if (days.isEmpty) return const SizedBox.shrink();
-        final dark = theme.id == 'leather' || theme.id == 'night' || theme.id == 'black';
+        final dark = theme.id == 'leather' || theme.id == 'night' || theme.id == 'black' || theme.id == 'senior';
         final accent = theme.id == 'night' ? theme.accent : Colors.white;
+        final big = theme.id == 'senior';
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: theme.id == 'ocean'
@@ -206,7 +207,7 @@ class WeatherStrip extends StatelessWidget {
             fit: BoxFit.scaleDown,
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [for (final d in days) _cell(d, accent)],
+              children: [for (final d in days) _cell(d, accent, big: big)],
             ),
           ),
         );
@@ -214,9 +215,10 @@ class WeatherStrip extends StatelessWidget {
     );
   }
 
-  Widget _cell(WeatherDay d, Color color) {
+  Widget _cell(WeatherDay d, Color color, {bool big = false}) {
     final name = (isEnglish ? _daysEn : _daysTr)[d.date.weekday - 1];
-    const style = TextStyle(fontSize: 11, height: 1.2);
+    final k = big ? 1.4 : 1.0;
+    final style = TextStyle(fontSize: 11 * k, height: 1.2);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Column(
@@ -227,11 +229,11 @@ class WeatherStrip extends StatelessWidget {
             style: style.copyWith(color: color),
           ),
           const SizedBox(height: 1),
-          Icon(weatherIcon(d.symbol), size: 26, color: color),
+          Icon(weatherIcon(d.symbol), size: 26 * k, color: color),
           const SizedBox(height: 1),
           Text(
             '${d.max}/${d.min}°',
-            style: style.copyWith(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+            style: style.copyWith(color: color, fontSize: 12 * k, fontWeight: FontWeight.w600),
           ),
         ],
       ),

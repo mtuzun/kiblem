@@ -28,6 +28,9 @@ const List<AppTheme> appThemes = [
   AppTheme('night', 'Gece', 'Night', Color(0xFFE8C468)),
   AppTheme('sunset', 'Gün Batımı', 'Sunset', Color(0xFFFFD27A)),
   AppTheme('black', 'Siyah', 'Black', Color(0xFF4DD0A8)),
+  // Yüksek kontrast, çok büyük yazı ve alt alta vakit satırları: yaşlılar ve düşük çözünürlüklü
+  // ya da küçük ekranlar için.
+  AppTheme('senior', 'Kolay Okuma', 'Easy Read', Color(0xFFFFD60A)),
 ];
 
 AppTheme appThemeById(String? id) =>
@@ -127,6 +130,9 @@ class ThemeBackground extends StatelessWidget {
           ),
           child: CustomPaint(painter: const _SunsetPainter(), child: child),
         );
+      case 'senior':
+        // Düz siyah zemin üzerinde beyaz yazı: en yüksek kontrast.
+        return Container(color: Colors.black, child: child);
       case 'black':
         // Saf siyah: OLED ekranlarda pil dostu; üstte çok hafif bir aydınlık.
         return Container(
@@ -241,7 +247,8 @@ class DateChip extends StatelessWidget {
   final HomeSnapshot s;
   final bool fill;
   final VoidCallback? onTap;
-  const DateChip(this.s, {super.key, this.fill = false, this.onTap});
+  final double fontSize;
+  const DateChip(this.s, {super.key, this.fill = false, this.onTap, this.fontSize = 13});
 
   @override
   Widget build(BuildContext context) {
@@ -256,12 +263,12 @@ class DateChip extends StatelessWidget {
         Flexible(
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text("${s.gregorian}   ${s.hijri}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+            child: Text("${s.gregorian}   ${s.hijri}", style: TextStyle(color: Colors.white, fontSize: fontSize)),
           ),
         ),
         if (onTap != null) ...[
           const SizedBox(width: 6),
-          Icon(Icons.calendar_month, color: Colors.white.withValues(alpha: 0.85), size: 16),
+          Icon(Icons.calendar_month, color: Colors.white.withValues(alpha: 0.85), size: fontSize + 3),
         ],
       ],
     );
@@ -303,9 +310,34 @@ class CountdownView extends StatelessWidget {
       case 'ocean':
       case 'black':
         return _thin();
+      case 'senior':
+        return _senior();
       default:
         return _classic();
     }
+  }
+
+  /// Çok büyük, kalın ve ortalanmış sayaç; tarih de normalden büyük.
+  Widget _senior() {
+    return Column(
+      children: [
+        Text(
+          _label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            s.timeLeft,
+            style: const TextStyle(color: Colors.white, fontSize: 72, fontWeight: FontWeight.w800, height: 1.1),
+          ),
+        ),
+        const SizedBox(height: 10),
+        DateChip(s, fill: true, fontSize: 18, onTap: onDateTap),
+      ],
+    );
   }
 
   Widget _classic() {
@@ -435,9 +467,60 @@ class PrayerTimesView extends StatelessWidget {
         return _text();
       case 'sunset':
         return _glass();
+      case 'senior':
+        return _list();
       default:
         return _row();
     }
+  }
+
+  /// Alt alta, tam genişlikte büyük satırlar: ad solda, saat sağda. Aktif vakit sarı dolu
+  /// satır ve siyah yazı olur; diğerleri beyaz çerçeveli.
+  Widget _list() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          for (final e in s.prayers)
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: e.active ? theme.accent : Colors.black,
+                border: Border.all(color: e.active ? theme.accent : Colors.white, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        e.name,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w600,
+                          color: e.active ? Colors.black : Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    e.time,
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      color: e.active ? Colors.black : Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Buzlu cam görünümlü 3×2 kart ızgarası; aktif vakit vurgu renginde dolu kart olur.
