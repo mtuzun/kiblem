@@ -190,7 +190,7 @@ class WeatherStrip extends StatelessWidget {
       valueListenable: weatherNotifier,
       builder: (context, days, _) {
         if (days.isEmpty) return const SizedBox.shrink();
-        final dark = theme.id == 'leather' || theme.id == 'night';
+        final dark = theme.id == 'leather' || theme.id == 'night' || theme.id == 'black';
         final accent = theme.id == 'night' ? theme.accent : Colors.white;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

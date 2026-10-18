@@ -26,6 +26,8 @@ const List<AppTheme> appThemes = [
   AppTheme('leather', 'Deri', 'Leather', Color(0xFF1FA3B5)),
   AppTheme('ocean', 'Okyanus', 'Ocean', Color(0xFF7FE9F2)),
   AppTheme('night', 'Gece', 'Night', Color(0xFFE8C468)),
+  AppTheme('sunset', 'Gün Batımı', 'Sunset', Color(0xFFFFD27A)),
+  AppTheme('black', 'Siyah', 'Black', Color(0xFF4DD0A8)),
 ];
 
 AppTheme appThemeById(String? id) =>
@@ -113,6 +115,30 @@ class ThemeBackground extends StatelessWidget {
           ),
           child: CustomPaint(painter: const _StarsPainter(), child: child),
         );
+      case 'sunset':
+        return Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFD9603B), Color(0xFF9B3F6B), Color(0xFF3A2A66)],
+              stops: [0.0, 0.55, 1.0],
+            ),
+          ),
+          child: CustomPaint(painter: const _SunsetPainter(), child: child),
+        );
+      case 'black':
+        // Saf siyah: OLED ekranlarda pil dostu; üstte çok hafif bir aydınlık.
+        return Container(
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(0, -1),
+              radius: 1.2,
+              colors: [Color(0xFF1A1A1A), Colors.black],
+            ),
+          ),
+          child: child,
+        );
       default:
         final dayOfYear = DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
         final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -186,6 +212,29 @@ class _StarsPainter extends CustomPainter {
   bool shouldRepaint(covariant _StarsPainter old) => false;
 }
 
+/// Gün batımı: ufukta yarı saydam büyük bir güneş ışıması.
+class _SunsetPainter extends CustomPainter {
+  const _SunsetPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.5, size.height * 0.82);
+    final radius = size.width * 0.75;
+    final glow = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFFFFC46B).withValues(alpha: 0.45),
+          const Color(0xFFFFC46B).withValues(alpha: 0.0),
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawCircle(center, radius, glow);
+    canvas.drawCircle(center, size.width * 0.16, Paint()..color = const Color(0xFFFFE2A8).withValues(alpha: 0.28));
+  }
+
+  @override
+  bool shouldRepaint(covariant _SunsetPainter old) => false;
+}
+
 // --- sayaç ------------------------------------------------------------------
 
 class DateChip extends StatelessWidget {
@@ -252,6 +301,7 @@ class CountdownView extends StatelessWidget {
       case 'leather':
         return _flip();
       case 'ocean':
+      case 'black':
         return _thin();
       default:
         return _classic();
@@ -381,10 +431,58 @@ class PrayerTimesView extends StatelessWidget {
       case 'leather':
         return _grid();
       case 'ocean':
+      case 'black':
         return _text();
+      case 'sunset':
+        return _glass();
       default:
         return _row();
     }
+  }
+
+  /// Buzlu cam görünümlü 3×2 kart ızgarası; aktif vakit vurgu renginde dolu kart olur.
+  Widget _glass() {
+    final p = s.prayers;
+    if (p.length < 6) return const SizedBox.shrink();
+    Widget card(PrayerEntry e) {
+      final active = e.active;
+      final fg = active ? const Color(0xFF3A2A66) : Colors.white;
+      return Expanded(
+        child: Container(
+          margin: const EdgeInsets.all(4),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          decoration: BoxDecoration(
+            color: active ? theme.accent : Colors.white.withValues(alpha: 0.16),
+            border: Border.all(color: Colors.white.withValues(alpha: active ? 0 : 0.35)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(e.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: fg)),
+              ),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(e.time, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: fg)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Column(
+        children: [
+          Row(children: [for (final e in p.sublist(0, 3)) card(e)]),
+          Row(children: [for (final e in p.sublist(3, 6)) card(e)]),
+        ],
+      ),
+    );
   }
 
   Widget _card(PrayerEntry e, {required double nameSize, required double timeSize, required double vPad}) {
@@ -459,34 +557,61 @@ class PrayerTimesView extends StatelessWidget {
   }
 
   Widget _text() {
+    const nameSize = 14.0, timeSize = 22.0, gap = 12.0;
+    Widget item(PrayerEntry e) => Expanded(
+          child: Column(
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _trUpper(e.name),
+                  style: TextStyle(fontSize: nameSize, color: e.active ? theme.accent : Colors.white),
+                ),
+              ),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  e.time,
+                  style: TextStyle(fontSize: timeSize, color: e.active ? theme.accent : Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        children: [
-          for (final e in s.prayers)
-            Expanded(
-              child: Column(
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _trUpper(e.name),
-                      style: TextStyle(fontSize: 14, color: e.active ? theme.accent : Colors.white),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      e.time,
-                      style: TextStyle(fontSize: 22, color: e.active ? theme.accent : Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        // Altı vakit tek satıra sığmazsa (dar ekran, büyütülmüş yazı) FittedBox her birini ayrı
+        // ayrı küçültüp aralarındaki boşluğu yok ediyordu; bunun yerine 3'erli iki satıra bölünür.
+        final scaler = MediaQuery.textScalerOf(context);
+        double width(String text, double size) => (TextPainter(
+              text: TextSpan(text: text, style: TextStyle(fontSize: size)),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+            )..layout())
+            .width;
+        final needed = s.prayers.fold<double>(
+              0,
+              (m, e) => max(m, max(width(_trUpper(e.name), nameSize), width(e.time, timeSize))),
+            ) +
+            gap;
+        // Sığan en kalabalık satır düzeni seçilir: 6, 3 ya da (çok büyük yazıda) 2'şerli.
+        final perRow = s.prayers.length < 6
+            ? max(s.prayers.length, 1)
+            : [6, 3].firstWhere((n) => constraints.maxWidth / n >= needed, orElse: () => 2);
+        if (perRow >= s.prayers.length) {
+          return Row(children: [for (final e in s.prayers) item(e)]);
+        }
+        return Column(
+          children: [
+            for (var i = 0; i < s.prayers.length; i += perRow) ...[
+              if (i > 0) const SizedBox(height: 12),
+              Row(children: [for (final e in s.prayers.sublist(i, min(i + perRow, s.prayers.length))) item(e)]),
+            ],
+          ],
+        );
+      }),
     );
   }
 }
