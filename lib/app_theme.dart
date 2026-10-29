@@ -479,6 +479,15 @@ class PrayerTimesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Büyütülmüş yazıda vakit bloğu ekranın çoğunu kaplayıp altı vakti birden göstermiyordu;
+    // bu yüzden yazı ölçeği sınırlanır (Kolay Okuma teması bilerek büyük kalır).
+    if (theme.id == 'senior') return _list();
+    // Buzlu cam kartları dolgulu olduğundan biraz daha sıkı sınırlanır.
+    final glass = theme.id == 'sunset' || theme.id == 'sky';
+    return MediaQuery.withClampedTextScaling(maxScaleFactor: glass ? 1.15 : 1.3, child: _byTheme());
+  }
+
+  Widget _byTheme() {
     switch (theme.id) {
       case 'leather':
         return _grid();
@@ -488,8 +497,6 @@ class PrayerTimesView extends StatelessWidget {
       case 'sunset':
       case 'sky':
         return _glass();
-      case 'senior':
-        return _list();
       default:
         return _row();
     }
@@ -556,7 +563,7 @@ class PrayerTimesView extends StatelessWidget {
       return Expanded(
         child: Container(
           margin: const EdgeInsets.all(4),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           decoration: BoxDecoration(
             color: active ? theme.accent : Colors.white.withValues(alpha: 0.16),
             border: Border.all(color: Colors.white.withValues(alpha: active ? 0 : 0.35)),
@@ -632,13 +639,42 @@ class PrayerTimesView extends StatelessWidget {
   }
 
   Widget _row() {
+    const nameSize = 13.0, timeSize = 15.0;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
-        children: [
-          for (final e in s.prayers) Expanded(child: _card(e, nameSize: 13, timeSize: 15, vPad: 10)),
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        // Altı kart tek satıra rahat sığmıyorsa (dar ekran, büyütülmüş yazı) yazılar küçücük kalıyordu;
+        // bunun yerine 3'erli iki satıra bölünür ve yazılar büyür.
+        final scaler = MediaQuery.textScalerOf(context);
+        final base = DefaultTextStyle.of(context).style;
+        double width(String text, double size) => (TextPainter(
+              text: TextSpan(text: text, style: base.copyWith(fontSize: size)),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+            )..layout())
+            .width;
+        final needed = s.prayers.fold<double>(
+              0,
+              (m, e) => max(m, max(width(e.name, nameSize), width(e.time, timeSize))),
+            ) +
+            12; // kart kenar boşlukları
+        final p = s.prayers;
+        if (p.length < 6 || constraints.maxWidth / 6 >= needed) {
+          return Row(
+            children: [for (final e in p) Expanded(child: _card(e, nameSize: nameSize, timeSize: timeSize, vPad: 10))],
+          );
+        }
+        Widget line(List<PrayerEntry> items) => Row(
+              children: [for (final e in items) Expanded(child: _card(e, nameSize: 16, timeSize: 20, vPad: 8))],
+            );
+        return Column(
+          children: [
+            line(p.sublist(0, 3)),
+            const SizedBox(height: 6),
+            line(p.sublist(3, 6)),
+          ],
+        );
+      }),
     );
   }
 
@@ -691,8 +727,9 @@ class PrayerTimesView extends StatelessWidget {
         // Altı vakit tek satıra sığmazsa (dar ekran, büyütülmüş yazı) FittedBox her birini ayrı
         // ayrı küçültüp aralarındaki boşluğu yok ediyordu; bunun yerine 3'erli iki satıra bölünür.
         final scaler = MediaQuery.textScalerOf(context);
+        final base = DefaultTextStyle.of(context).style;
         double width(String text, double size) => (TextPainter(
-              text: TextSpan(text: text, style: TextStyle(fontSize: size)),
+              text: TextSpan(text: text, style: base.copyWith(fontSize: size)),
               textDirection: TextDirection.ltr,
               textScaler: scaler,
             )..layout())

@@ -38,6 +38,7 @@ import 'qibla_screen.dart';
 import 'ad_banner.dart';
 import 'figures.dart';
 import 'app_theme.dart';
+import 'fit_height.dart';
 export 'qibla_compass.dart' show QiblaCompass;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -134,7 +135,7 @@ class MyApp extends StatelessWidget {
       valueListenable: themeModeNotifier,
       builder: (context, mode, _) {
         return MaterialApp(
-          title: 'Kuran, Kıble ve Namaz Rehberim',
+          title: 'Ezan Vakti, Kuran Kıblem Zikir',
           debugShowCheckedModeBanner: false,
           themeMode: mode,
           theme: ThemeData(
@@ -1392,6 +1393,21 @@ class _MainScreenState extends State<MainScreen> {
   // Uygulamayla gelen sesler: Android raw kaynağı -> önizleme için Flutter asset'i.
   static const _bundledSounds = {_beepUri: 'beep.wav', _ziiilUri: 'ziiil.wav'};
 
+  static const _rawBase = 'android.resource://com.metint.kiblem/raw/';
+
+  // Seçim listesindeki ek sesler: assets/<ad>.wav ve res/raw/<ad>.wav olarak durur.
+  // (ad, Türkçe ad, İngilizce ad, süre sn). Orijinal dosya adları sounds_src/KAYNAKLAR.md'de.
+  static const _extraSounds = [
+    ('melodi_1', 'Melodi 1', 'Melody 1', 2),
+    ('melodi_2', 'Melodi 2', 'Melody 2', 4),
+    ('melodi_3', 'Melodi 3', 'Melody 3', 8),
+    ('melodi_4', 'Melodi 4', 'Melody 4', 8),
+    ('melodi_5', 'Melodi 5', 'Melody 5', 9),
+    ('melodi_6', 'Melodi 6', 'Melody 6', 11),
+    ('melodi_7', 'Melodi 7', 'Melody 7', 12),
+    ('melodi_8', 'Melodi 8', 'Melody 8', 18),
+  ];
+
   // Alarm sesini seçmeden/değiştirmeden önce dinlemek için. uri null ise sistem varsayılanı
   // kullanılıyordur ve uygulama içinden çalınamaz.
   Future<void> _previewSound(String? uri) async {
@@ -1399,7 +1415,9 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final player = _soundPreviewPlayer ??= AudioPlayer();
       await player.stop();
-      final asset = _bundledSounds[uri];
+      // Ek sesler (melodi_N) için asset adı raw adından türetilir: raw/melodi_3 -> melodi_3.wav.
+      final asset = _bundledSounds[uri] ??
+          (uri.startsWith('${_rawBase}melodi_') ? '${uri.substring(_rawBase.length)}.wav' : null);
       await player.play(asset != null ? AssetSource(asset) : UrlSource(uri));
     } catch (_) {}
   }
@@ -1408,7 +1426,10 @@ class _MainScreenState extends State<MainScreen> {
     if (kIsWeb || !Platform.isAndroid) return;
     final source = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
+        // Ses sayısı arttığı için liste kısa ekranlarda taşmasın diye kaydırılabilir.
+        child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1434,6 +1455,18 @@ class _MainScreenState extends State<MainScreen> {
               ),
               onTap: () => Navigator.pop(context, 'ziiil'),
             ),
+            for (final (name, tr, en, seconds) in _extraSounds)
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: Text(t(tr, en)),
+                subtitle: Text(t("Uygulamayla gelen, yaklaşık $seconds saniye", "Built into the app, about $seconds seconds")),
+                trailing: IconButton(
+                  icon: const Icon(Icons.play_circle_outline),
+                  tooltip: t("Dinle", "Preview"),
+                  onPressed: () => _previewSound('$_rawBase$name'),
+                ),
+                onTap: () => Navigator.pop(context, 'raw:$name'),
+              ),
             ListTile(
               leading: const Icon(Icons.music_note_outlined),
               title: Text(t("Zil sesi seç", "Choose ringtone")),
@@ -1453,6 +1486,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
           ],
         ),
+        ),
       ),
     );
     _soundPreviewPlayer?.stop();
@@ -1467,6 +1501,15 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {
         prayerAlarms[i].soundUri = _ziiilUri;
         prayerAlarms[i].soundTitle = t('Zil', 'Chime');
+      });
+      await _savePrayerAlarm(i);
+      await _scheduleAzanReminders();
+    } else if (source != null && source.startsWith('raw:')) {
+      final name = source.substring(4);
+      final sound = _extraSounds.firstWhere((s) => s.$1 == name);
+      setState(() {
+        prayerAlarms[i].soundUri = '$_rawBase$name';
+        prayerAlarms[i].soundTitle = t(sound.$2, sound.$3);
       });
       await _savePrayerAlarm(i);
       await _scheduleAzanReminders();
@@ -2551,7 +2594,11 @@ class _MainScreenState extends State<MainScreen> {
         ),
         Padding(
           padding: const EdgeInsets.all(20.0),
-          child: Column(
+          // Alçak ekranda ya da büyütülmüş yazıda üst blok (şehir, hava, sayaç, tarih) ekran
+          // yüksekliğinin %46'sını aşarsa tamamı oranlı küçülür; böylece vakit satırları ekrana sığar.
+          child: FitHeight(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.46 - 40,
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Şehir kutusu ve hava durumu aynı satıra sığmazsa (uzun şehir adı, dar ekran,
@@ -2621,6 +2668,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ],
@@ -2731,9 +2779,9 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(t("Ayet-i Kerime", "Quran Verse"), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
                     _buildOfflineDownloadIcon(),
@@ -2748,7 +2796,16 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                   ],
                 ),
-                Row(
+                // Sağ grup (önceki/sonraki ayet, sure adı, liste) soldaki başlığın yanında sığmazsa
+                // taşıp "sonraki ayet" okunu dışarıda bırakmak yerine küçülür.
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_back_ios, size: 14, color: Colors.grey),
@@ -2779,8 +2836,11 @@ class _MainScreenState extends State<MainScreen> {
                       constraints: const BoxConstraints(),
                       onPressed: _nextAyah,
                     ),
-                  ]
-                )
+                  ],
+                ),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 15),
@@ -2937,10 +2997,10 @@ class _MainScreenState extends State<MainScreen> {
     final text = t(
       "${h.text}\n\n"
           "Kaynak: ${h.source}\n\n"
-          "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
+          "Ezan Vakti, Kuran Kıblem Zikir uygulamasından paylaşıldı.",
       "${h.shownText}\n\n"
           "Source: ${h.shownSource}\n\n"
-          "Shared from the Qibla & Prayer Guide app.",
+          "Shared from the Ezan Vakti, Kuran Kıblem Zikir app.",
     );
     SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: _shareOrigin()));
   }
@@ -3104,11 +3164,11 @@ class _MainScreenState extends State<MainScreen> {
       "${_ayahRef(data)}\n\n"
           "${data['arabic']}\n\n"
           "${data['turkish1'] ?? ''}\n\n"
-          "Kıble ve Namaz Rehberim uygulamasından paylaşıldı.",
+          "Ezan Vakti, Kuran Kıblem Zikir uygulamasından paylaşıldı.",
       "${_ayahRef(data)}\n\n"
           "${data['arabic']}\n\n"
           "${data['english'] ?? ''}\n\n"
-          "Shared from the Qibla & Prayer Guide app.",
+          "Shared from the Ezan Vakti, Kuran Kıblem Zikir app.",
     );
     SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: _shareOrigin()));
   }

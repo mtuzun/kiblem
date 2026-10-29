@@ -124,6 +124,69 @@ void main() {
     expect(chip.bottom - label.top, lessThan(150), reason: 'etiketten tarih kutusunun altına kadar yükseklik');
   });
 
+  // Klasik ve Gece: altı kart rahat sığıyorsa tek satır, sığmıyorsa (dar ekran / büyük yazı) 3'erli iki satır.
+  for (final themeId in ['classic', 'night']) {
+    for (final c in [(412.0, 1.0, 1), (320.0, 1.0, 2), (360.0, 1.3, 2), (360.0, 2.0, 2)]) {
+      testWidgets('$themeId vakit kartları ${c.$3} satır: ${c.$1}dp, yazı x${c.$2}', (tester) async {
+        tester.view.physicalSize = Size(c.$1 * 2, 1600);
+        tester.view.devicePixelRatio = 2;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(fontFamily: 'Roboto'),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(c.$2)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topCenter,
+                child: PrayerTimesView(theme: appThemeById(themeId), s: _snapshot()),
+              ),
+            ),
+          ),
+        );
+        expect(tester.takeException(), isNull);
+        final rows = {
+          for (final e in _snapshot().prayers) tester.getRect(find.text(e.time)).center.dy.round() ~/ 10,
+        };
+        expect(rows.length, c.$3);
+      });
+    }
+  }
+
+  // Büyütülmüş yazıda vakit bloğu ekranı doldurmamalı: altı vakit en çok iki satıra sığar.
+  for (final themeId in ['ocean', 'black']) {
+    for (final scale in [1.6, 2.0]) {
+      testWidgets('$themeId vakit bloğu alçak kalır: 360dp, yazı x$scale', (tester) async {
+        tester.view.physicalSize = const Size(720, 1600);
+        tester.view.devicePixelRatio = 2;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(fontFamily: 'Roboto'),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topCenter,
+                child: PrayerTimesView(theme: appThemeById(themeId), s: _snapshot()),
+              ),
+            ),
+          ),
+        );
+        final rows = {
+          for (final e in _snapshot().prayers) tester.getRect(find.text(e.time)).center.dy.round() ~/ 10,
+        };
+        expect(rows.length, lessThanOrEqualTo(2), reason: 'en çok iki satır');
+      });
+    }
+  }
+
   // Vakitleri düz metin olarak sıralayan temalarda (Okyanus, Siyah) vakitler dar alanda tek tek
   // küçülüp birbirine yapışmamalı.
   for (final themeId in ['ocean', 'black']) {

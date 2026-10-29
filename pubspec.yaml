@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.2.15+36
+version: 1.2.19+40
 
 environment:
   sdk: ^3.11.1
@@ -83,6 +83,15 @@ flutter:
   assets:
     - assets/beep.wav
     - assets/ziiil.wav
+    # Alarm sesi seçiminde ön dinleme için; aynı dosyalar Android tarafında res/raw içinde de durur.
+    - assets/melodi_1.wav
+    - assets/melodi_2.wav
+    - assets/melodi_3.wav
+    - assets/melodi_4.wav
+    - assets/melodi_5.wav
+    - assets/melodi_6.wav
+    - assets/melodi_7.wav
+    - assets/melodi_8.wav
 
   # To add assets to your application, add an assets section, like this:
   # assets:

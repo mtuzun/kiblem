@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; }
+  body { width: 1024px; height: 500px; overflow: hidden; font-family: "Segoe UI", "Roboto", Arial, sans-serif; }
+  .bg {
+    position: relative; width: 1024px; height: 500px;
+    background:
+      radial-gradient(circle at 18% 50%, rgba(255, 255, 255, 0.10) 0, rgba(255, 255, 255, 0) 45%),
+      linear-gradient(135deg, #0B2B20 0%, #14503A 55%, #1C6B4E 100%);
+  }
+  .star { position: absolute; border-radius: 50%; background: #fff; opacity: .55; }
+  .badge {
+    position: absolute; left: 70px; top: 70px; width: 360px; height: 360px;
+    border-radius: 50%; background: #FBFAF4;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .35), 0 0 0 8px rgba(230, 195, 110, .55);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .badge img { width: 330px; height: 330px; }
+  .text { position: absolute; left: 480px; top: 0; height: 500px; width: 500px;
+          display: flex; flex-direction: column; justify-content: center; color: #fff; }
+  h1 { margin: 0; font-size: 84px; line-height: 1.0; font-weight: 800; letter-spacing: -1px; }
+  .sub { margin-top: 18px; font-size: 38px; font-weight: 600; color: #F0CF7A; }
+  .chips { margin-top: 34px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .chip { font-size: 24px; font-weight: 600; padding: 8px 18px; border-radius: 999px;
+          background: rgba(255, 255, 255, .14); border: 2px solid rgba(255, 255, 255, .35); }
+</style>
+</head>
+<body>
+<div class="bg">
+  <div class="star" style="left:520px; top:46px; width:5px; height:5px"></div>
+  <div class="star" style="left:900px; top:80px; width:4px; height:4px"></div>
+  <div class="star" style="left:960px; top:410px; width:5px; height:5px"></div>
+  <div class="star" style="left:600px; top:455px; width:3px; height:3px"></div>
+  <div class="badge"><img src="../../assets/icon_playstore_512.png" alt=""></div>
+  <div class="text">
+    <h1>Ezan Vakti</h1>
+    <div class="sub">Kuran • Kıble • Zikirmatik</div>
+    <div class="chips">
+      <span class="chip">8 tema</span>
+      <span class="chip">Widget</span>
+      <span class="chip">Büyük yazı</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>
