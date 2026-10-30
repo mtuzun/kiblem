@@ -8,9 +8,9 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.metint.kiblem
+        bundle_identifier: com.metint.ezanvakti
       vars:
-        APP_STORE_APPLE_ID: 0000000000 # App Store Connect'te uygulama oluşturunca güncellenecek
+        APP_STORE_APPLE_ID: 6828909864
       flutter: 3.41.4 # Yerel sürümle aynı; "stable" değişirse derleme bozulmasın diye sabitlendi
       xcode: latest
       cocoapods: default
