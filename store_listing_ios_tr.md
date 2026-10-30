@@ -43,7 +43,7 @@ Klasik, Deri, Okyanus, Gece, Gün Batımı, Siyah, Gökyüzü ve Kolay Okuma olm
 Not: Hadis metinlerinin Türkçe ve İngilizce hâlleri bu uygulama için hazırlanmış serbest çevirilerdir. Ayrıntı için kaynak eserlere başvurmanızı öneririz.
 
 SUPPORT URL:
-{{GİZLİLİK SAYFASI URL'İ}}
+https://mtuzun.github.io/kiblem/
 
 PRIVACY POLICY URL:
-{{GİZLİLİK SAYFASI URL'İ}}
+https://mtuzun.github.io/kiblem/
