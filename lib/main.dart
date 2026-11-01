@@ -34,6 +34,7 @@ import 'offline_quran.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'text_zoom.dart';
 import 'onboarding_screen.dart';
+import 'setup_wizard.dart';
 import 'qibla_screen.dart';
 import 'ad_banner.dart';
 import 'figures.dart';
@@ -78,9 +79,27 @@ final GlobalKey qiblaButtonKey = GlobalKey();
 final GlobalKey prayerListKey = GlobalKey();
 final GlobalKey dailyAyahKey = GlobalKey();
 final GlobalKey dailyHadithKey = GlobalKey();
-final GlobalKey dailyTabsKey = GlobalKey();
-// Dar ekranda açık sekme: 0 = Günün Ayeti, 1 = Vaktin Hadisi.
-final ValueNotifier<int> dailyTabNotifier = ValueNotifier<int>(1);
+final GlobalKey quranButtonKey = GlobalKey();
+
+/// İlk kurulumdaki kolay kurulum sihirbazı; yalnızca yeni kurulumda açılır.
+final ValueNotifier<bool> showSetupWizard = ValueNotifier<bool>(false);
+
+/// Sihirbazın ana ekrandaki işlevlere (konum bulma, şehir seçme, alarmları açma) erişimi.
+/// Ana ekran açıldığında doldurulur, kapanınca temizlenir.
+class SetupActions {
+  Future<void> Function()? locate;
+  Future<void> Function()? pickCity;
+  Future<void> Function()? enableAlarms;
+
+  /// Alarm adımı: vakit listesi (açık/kapalı), vakit adı, süre etiketi ve süre seçimi.
+  List<PrayerAlarm> Function()? alarms;
+  Future<void> Function(int index, bool value)? setAlarmEnabled;
+  Future<void> Function(int index)? pickAlarmMinutes;
+  String Function(int index)? alarmName;
+  String Function(int minutes, bool after)? minutesLabel;
+}
+
+final SetupActions setupActions = SetupActions();
 final GlobalKey zikirButtonKey = GlobalKey();
 final GlobalKey settingsButtonKey = GlobalKey();
 final ValueNotifier<bool> showCoachMarks = ValueNotifier<bool>(false);
@@ -121,6 +140,7 @@ void main() async {
   figureNotifier.value = figureById(prefs.getString('app_figure')).id;
   await loadSavedLanguage();
   await loadSavedTextZoom();
+  await loadWeatherEnabled();
   unawaited(OfflineQuran.init());
 
   runApp(const MyApp());
@@ -169,6 +189,57 @@ class MyApp extends StatelessWidget {
   }
 }
 
+void showPrivacyDetails(BuildContext context) {
+  const policyUrl = 'https://mtuzun.github.io/kiblem/';
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      scrollable: true,
+      title: Text(t("Gizlilik ve KVKK Bilgilendirmesi", "Privacy and KVKK Notice")),
+      content: SelectableText(
+        t(
+          "Veri sorumlusu: Metin Tüzün (mtuzun06@gmail.com).\n\n"
+              "Uygulama hesap istemez ve verilerinizi kendi sunucularında toplamaz veya saklamaz.\n\n"
+              "İşlenen veriler: Konumunuz (yalnızca izin verirseniz; namaz vakti ve kıble hesabı, şehir tespiti ve hava durumu için), seçtiğiniz şehir ve uygulama ayarlarınız. "
+              "Üçüncü taraf hizmetler IP adresinizi, reklam için ise cihaz bilgisini görebilir.\n\n"
+              "Amaç: Namaz vakitleri ve kıble hesabı, hava durumu, harita, Kur'an metni ve sesi, reklam.\n\n"
+              "Hukuki sebep: Konum için işletim sisteminin izin penceresinde verdiğiniz açık rıza. "
+              "Rızanızı cihaz ayarlarından istediğiniz zaman geri alabilirsiniz.\n\n"
+              "Aktarım: Hava durumu (MET Norway) ve reklam (Google AdMob) hizmetleri yurt dışındadır. "
+              "Hava durumu için koordinatlar yaklaşık 1 km hassasiyetle gönderilir; Ayarlar'dan hava durumunu kapatırsanız hiç gönderilmez.\n\n"
+              "KVKK m.11 kapsamındaki haklarınız (bilgi alma, düzeltme, silme, itiraz vb.) için yukarıdaki e-posta adresine "
+              "başvurabilirsiniz; başvurunuz en geç 30 gün içinde yanıtlanır.\n\n"
+              "Bu metin, 6698 sayılı KVKK'nın 10. maddesi kapsamında bilgilendirme amacıyla hazırlanmıştır; "
+              "uygulamayı kullanmak için ayrıca onay vermeniz gerekmez. Konum için açık rızanız işletim sisteminin "
+              "izin penceresiyle ayrıca alınır ve istediğiniz zaman geri alınabilir.\n\n"
+              "Ayrıntılı politika:\n$policyUrl",
+          "Data controller: Metin Tüzün (mtuzun06@gmail.com).\n\n"
+              "The app does not ask for an account and does not collect or store your data on servers of its own.\n\n"
+              "Data processed: Your location (only if you allow it; for prayer time and qibla calculation, finding your city and the weather), your chosen city and your app settings. "
+              "Third-party services may see your IP address and, for ads, device information.\n\n"
+              "Purposes: Prayer time and qibla calculation, weather, maps, Quran text and audio, and ads.\n\n"
+              "Legal basis: For location, the explicit consent you give in the operating system's permission prompt. "
+              "You can withdraw it at any time in your device settings.\n\n"
+              "Transfers: The weather (MET Norway) and advertising (Google AdMob) services are located abroad. "
+              "Coordinates sent for the weather have about 1 km precision, and none are sent if you turn the weather off in Settings.\n\n"
+              "For your rights under KVKK Art. 11 (access, correction, deletion, objection, etc.) write to the email "
+              "address above; requests are answered within 30 days.\n\n"
+              "This notice is provided for information under Article 10 of KVKK; you do not need to give a separate "
+              "approval to use the app. Your explicit consent for location is requested separately through the "
+              "operating system's permission prompt and can be withdrawn at any time.\n\n"
+              "Full policy:\n$policyUrl",
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(t("Kapat", "Close")),
+        ),
+      ],
+    ),
+  );
+}
+
 class AppEntry extends StatefulWidget {
   const AppEntry({super.key});
 
@@ -187,13 +258,14 @@ class _AppEntryState extends State<AppEntry> {
     final prefs = await SharedPreferences.getInstance();
     final seen = prefs.getBool('has_seen_onboarding') ?? false;
     if (!seen) {
-      showCoachMarks.value = true;
+      // Yeni kurulumda önce kolay kurulum sihirbazı, ardından uygulama turu açılır. Uygulamayı
+      // güncelleyen eski kullanıcılar (has_seen_onboarding kayıtlı) ikisini de görmez.
+      showSetupWizard.value = true;
     }
   }
 
   Future<void> _finishCoachMarks() async {
     showCoachMarks.value = false;
-    dailyTabNotifier.value = 1;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('has_seen_onboarding', true);
   }
@@ -203,6 +275,18 @@ class _AppEntryState extends State<AppEntry> {
     return Stack(
       children: [
         const MainScreen(),
+        ValueListenableBuilder<bool>(
+          valueListenable: showSetupWizard,
+          builder: (context, visible, _) {
+            if (!visible) return const SizedBox.shrink();
+            return SetupWizard(
+              onFinished: () {
+                showSetupWizard.value = false;
+                showCoachMarks.value = true;
+              },
+            );
+          },
+        ),
         ValueListenableBuilder<bool>(
           valueListenable: showCoachMarks,
           builder: (context, visible, _) {
@@ -297,13 +381,6 @@ class _MainScreenState extends State<MainScreen> {
   // 'fullscreen': çalan tam ekran alarm, 'notification': sadece sesli bildirim.
   String alarmMode = 'fullscreen';
   String? _lastWidgetKey;
-
-  int get _dailyTab => dailyTabNotifier.value;
-  set _dailyTab(int v) => dailyTabNotifier.value = v;
-
-  void _onDailyTabChanged() {
-    if (mounted) setState(() {});
-  }
 
   final ValueNotifier<String?> audioNotice = ValueNotifier(null);
   Timer? _audioNoticeTimer;
@@ -492,7 +569,14 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    dailyTabNotifier.addListener(_onDailyTabChanged);
+    setupActions.locate = _findLocationInBackground;
+    setupActions.pickCity = _pickCityForSetup;
+    setupActions.enableAlarms = _enableAlarmsForSetup;
+    setupActions.alarms = () => prayerAlarms;
+    setupActions.setAlarmEnabled = _setAlarmEnabled;
+    setupActions.pickAlarmMinutes = _pickAlarmMinutes;
+    setupActions.alarmName = (i) => _getPrayerName(_prayerFromIndex(i));
+    setupActions.minutesLabel = _minutesLabel;
     langNotifier.addListener(_onLangChanged);
     themeNotifier.addListener(_onAppearanceChanged);
     colorThemeNotifier.addListener(_onAppearanceChanged);
@@ -566,7 +650,14 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _audioNoticeTimer?.cancel();
     _internetWaitTimer?.cancel();
-    dailyTabNotifier.removeListener(_onDailyTabChanged);
+    setupActions.locate = null;
+    setupActions.pickCity = null;
+    setupActions.enableAlarms = null;
+    setupActions.alarms = null;
+    setupActions.setAlarmEnabled = null;
+    setupActions.pickAlarmMinutes = null;
+    setupActions.alarmName = null;
+    setupActions.minutesLabel = null;
     langNotifier.removeListener(_onLangChanged);
     themeNotifier.removeListener(_onAppearanceChanged);
     colorThemeNotifier.removeListener(_onAppearanceChanged);
@@ -1576,6 +1667,51 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  /// Kolay kurulum: şehri listeden seçtirir.
+  Future<void> _pickCityForSetup() async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(t("Şehir Seç", "Choose City")),
+        contentPadding: const EdgeInsets.only(top: 12),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _cities.length,
+            itemBuilder: (context, i) => ListTile(
+              dense: true,
+              title: Text(_cities[i]),
+              selected: _cities[i] == currentCity,
+              onTap: () => Navigator.pop(context, _cities[i]),
+            ),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(t("Vazgeç", "Cancel")))],
+      ),
+    );
+    if (picked == null || !mounted || picked == currentCity) return;
+    setState(() {
+      currentCity = picked;
+      prayerTimes = null;
+    });
+    _saveCity(picked);
+    await _calculatePrayerTimesForCity(picked);
+  }
+
+  /// Kolay kurulum: İmsak, Öğle, İkindi, Akşam ve Yatsı için vaktinde uyarıyı açar (Güneş hariç).
+  Future<void> _enableAlarmsForSetup() async {
+    for (final i in const [0, 2, 3, 4, 5]) {
+      if (!mounted) return;
+      if (prayerAlarms[i].enabled) continue;
+      setState(() {
+        prayerAlarms[i].minutes = 0;
+        prayerAlarms[i].after = false;
+      });
+      await _setAlarmEnabled(i, true);
+    }
+  }
+
   Future<void> _requestAlarmPermissions() async {
     final androidPlugin = flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
@@ -2085,6 +2221,19 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             _settingsSection(
               context,
+              null,
+              [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: Text(t("Gizlilik ve KVKK Bilgilendirmesi", "Privacy and KVKK Notice")),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showPrivacyDetails(context),
+                ),
+              ],
+            ),
+            _settingsSection(
+              context,
               t("Vakit Uyarıları", "Prayer Time Alerts"),
               [
                 if (!_isIos) ...[
@@ -2303,6 +2452,31 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
+              ],
+            ),
+            _settingsSection(
+              context,
+              t("Hava Durumu", "Weather"),
+              [
+                ValueListenableBuilder<bool>(
+                  valueListenable: weatherEnabledNotifier,
+                  builder: (context, enabled, _) => SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(t("3 günlük hava durumunu göster", "Show 3-day weather")),
+                    subtitle: Text(
+                      t(
+                        "Kapalıyken hava durumu için konumunuz hiçbir yere gönderilmez.",
+                        "When off, your location is not sent anywhere for the weather.",
+                      ),
+                    ),
+                    value: enabled,
+                    onChanged: (v) => setWeatherEnabled(
+                      v,
+                      lat: activeCoordinates?.latitude,
+                      lon: activeCoordinates?.longitude,
+                    ),
+                  ),
+                ),
               ],
             ),
             _settingsSection(
@@ -2555,7 +2729,10 @@ class _MainScreenState extends State<MainScreen> {
                       child: Column(
                         children: [
                           KeyedSubtree(key: prayerListKey, child: _buildPrayerList()),
-                          KeyedSubtree(key: dailyTabsKey, child: _buildDailyTabs()),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                            child: KeyedSubtree(key: dailyHadithKey, child: _buildDailyHadith()),
+                          ),
                           const SizedBox(height: 20),
                         ],
                       ),
@@ -2675,60 +2852,109 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildBottomMenu() {
+  /// Alt menü; ana sayfada ve tam ekran Kur'an sayfasında aynı görünür. 7 simge eşit genişliği paylaşır,
+  /// dar ekranda simge boyutu küçülür. Tanıtım turu anahtarları yalnızca ana sayfadaki menüye bağlanır:
+  /// iki sayfa aynı anda ağaçta durduğu için aynı GlobalKey iki kez kullanılamaz.
+  Widget _buildBottomMenu({bool onQuranPage = false}) {
     return Material(
       color: Colors.white,
       elevation: 8,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            IconButton(
-              icon: isLocating
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black87, strokeWidth: 2))
-                  : const Icon(Icons.my_location_outlined, size: 30, color: Colors.black87),
-              tooltip: t("Mevcut Konumu Bul", "Find My Location"),
-              onPressed: isLocating ? null : _findLocationInBackground,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = (constraints.maxWidth / 7 - 14).clamp(20.0, 30.0);
+          Widget item({
+            required IconData icon,
+            required String tooltip,
+            required VoidCallback? onPressed,
+            GlobalKey? key,
+            Widget? child,
+            bool selected = false,
+          }) {
+            return Expanded(
+              child: IconButton(
+                key: key,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minHeight: 48),
+                icon: child ?? Icon(icon, size: size, color: selected ? Colors.green[700] : Colors.black87),
+                tooltip: tooltip,
+                onPressed: onPressed,
+              ),
+            );
+          }
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                item(
+                  icon: onQuranPage ? Icons.home_outlined : Icons.home,
+                  tooltip: t("Ana Sayfa", "Home"),
+                  selected: !onQuranPage,
+                  onPressed: () {
+                    if (onQuranPage) Navigator.pop(context);
+                  },
+                ),
+                item(
+                  icon: Icons.my_location_outlined,
+                  tooltip: t("Mevcut Konumu Bul", "Find My Location"),
+                  child: isLocating
+                      ? SizedBox(
+                          width: size - 6,
+                          height: size - 6,
+                          child: const CircularProgressIndicator(color: Colors.black87, strokeWidth: 2),
+                        )
+                      : null,
+                  onPressed: isLocating ? null : _findLocationInBackground,
+                ),
+                item(
+                  key: onQuranPage ? null : qiblaButtonKey,
+                  icon: Icons.explore_outlined,
+                  tooltip: t("Kıble Yönü", "Qibla Direction"),
+                  onPressed: () {
+                    if (kIsWeb) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(t('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.', 'The qibla compass is not supported in web browsers. Please try it on mobile.'))),
+                      );
+                      return;
+                    }
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const QiblaScreen()));
+                  },
+                ),
+                item(
+                  key: onQuranPage ? null : zikirButtonKey,
+                  icon: Icons.timer_outlined,
+                  tooltip: t("Zikirmatik / Sayaç", "Dhikr Counter"),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ZikirmatikScreen()),
+                    );
+                  },
+                ),
+                item(
+                  key: onQuranPage ? null : quranButtonKey,
+                  icon: onQuranPage ? Icons.menu_book : Icons.menu_book_outlined,
+                  tooltip: t("Ayet-i Kerime", "Quran Verse"),
+                  selected: onQuranPage,
+                  onPressed: () {
+                    if (!onQuranPage) _showAyahDialog(context);
+                  },
+                ),
+                item(
+                  icon: Icons.palette_outlined,
+                  tooltip: t("Tema", "Theme"),
+                  onPressed: _showThemePicker,
+                ),
+                item(
+                  key: onQuranPage ? null : settingsButtonKey,
+                  icon: Icons.settings_outlined,
+                  tooltip: t("Ayarlar", "Settings"),
+                  onPressed: _showSettingsDialog,
+                ),
+              ],
             ),
-            IconButton(
-              key: qiblaButtonKey,
-              icon: const Icon(Icons.explore_outlined, size: 30, color: Colors.black87),
-              tooltip: t("Kıble Yönü", "Qibla Direction"),
-              onPressed: () {
-                if (kIsWeb) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(t('Kıble pusulası web tarayıcılarında desteklenmez. Lütfen mobilde deneyin.', 'The qibla compass is not supported in web browsers. Please try it on mobile.'))),
-                  );
-                  return;
-                }
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const QiblaScreen()));
-              },
-            ),
-            IconButton(
-              key: zikirButtonKey,
-              icon: const Icon(Icons.timer_outlined, size: 30, color: Colors.black87),
-              tooltip: t("Zikirmatik / Sayaç", "Dhikr Counter"),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ZikirmatikScreen()),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.palette_outlined, size: 30, color: Colors.black87),
-              tooltip: t("Tema", "Theme"),
-              onPressed: _showThemePicker,
-            ),
-            IconButton(
-              key: settingsButtonKey,
-              icon: const Icon(Icons.settings_outlined, size: 30, color: Colors.black87),
-              tooltip: t("Ayarlar", "Settings"),
-              onPressed: _showSettingsDialog,
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -2907,50 +3133,6 @@ class _MainScreenState extends State<MainScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildDailyTabs() {
-    Widget tab(String label, int index) {
-      final selected = _dailyTab == index;
-      return Expanded(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => setState(() => _dailyTab = index),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: selected ? 0.95 : 0.25),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: selected ? Colors.green[800] : Colors.white,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: Row(
-            children: [
-              tab(t("Ayet-i Kerime", "Quran Verse"), 0),
-              const SizedBox(width: 8),
-              tab(t("Vaktin Hadisi", "Hadith of the Hour"), 1),
-            ],
-          ),
-        ),
-        _dailyTab == 0 ? _buildDailyAyah() : _buildDailyHadith(),
-      ],
     );
   }
 
@@ -3236,6 +3418,7 @@ class _MainScreenState extends State<MainScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildAudioBar(context),
+          _buildBottomMenu(onQuranPage: true),
           // Reklam, ses düğmelerinin altında ve onlardan boşlukla ayrılmış durur.
           Material(
             color: Theme.of(context).colorScheme.surface,

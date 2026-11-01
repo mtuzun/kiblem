@@ -7,8 +7,7 @@ import 'main.dart'
         prayerListKey,
         dailyAyahKey,
         dailyHadithKey,
-        dailyTabsKey,
-        dailyTabNotifier,
+        quranButtonKey,
         zikirButtonKey,
         settingsButtonKey;
 
@@ -19,16 +18,12 @@ class _CoachStep {
   final IconData icon;
   final String title;
   final String description;
-  final bool isDoubleTap;
-  final VoidCallback? beforeShow;
 
   const _CoachStep({
     required this.keys,
     required this.icon,
     required this.title,
     required this.description,
-    this.isDoubleTap = false,
-    this.beforeShow,
   });
 
   GlobalKey? get mountedKey {
@@ -59,25 +54,22 @@ List<_CoachStep> get _coachSteps => [
     ),
   ),
   _CoachStep(
-    keys: [dailyHadithKey, dailyTabsKey],
+    keys: [dailyHadithKey],
     icon: Icons.format_quote,
     title: t("Vaktin Hadisi", "Hadith of the Hour"),
     description: t(
       "Her namaz vaktinde farklı bir kısa hadis-i şerif gösterilir ve her gün değişir. Uzun olanlarda \"Tamamını oku\" ile metnin tamamını görebilir, paylaş simgesiyle arkadaşlarınla paylaşabilirsin.",
       "A different short hadith is shown for each prayer time, and it changes every day. For longer ones, tap \"Read more\" to see the full text, and use the share icon to send it to friends.",
     ),
-    beforeShow: () => dailyTabNotifier.value = 1,
   ),
   _CoachStep(
-    keys: [dailyAyahKey, dailyTabsKey],
+    keys: [quranButtonKey, dailyAyahKey],
     icon: Icons.menu_book,
     title: t("Ayet-i Kerime", "Quran Verse"),
     description: t(
-      "Üstteki sekmeden Ayet-i Kerime'ye geçebilirsin. Ayetler sırayla okunur, kaldığın yerden devam eder. Ayete çift dokunarak mealini açabilir ve sesli okunuşunu dinleyebilirsin.",
-      "Use the tab above to switch to the Quran verse. Verses are read in order and continue where you left off. Double-tap a verse to open its translation and listen to the recitation.",
+      "Alttaki menüden kitap simgesine dokunarak Ayet-i Kerime sayfasını tam ekran açabilirsin. Ayetler sırayla okunur, kaldığın yerden devam eder; meali açabilir ve sesli okunuşunu dinleyebilirsin. Ana sayfa simgesi seni geri getirir.",
+      "Tap the book icon in the bottom menu to open the Quran verse page in full screen. Verses are read in order and continue where you left off; you can open the translation and listen to the recitation. The home icon brings you back.",
     ),
-    isDoubleTap: true,
-    beforeShow: () => dailyTabNotifier.value = 0,
   ),
   _CoachStep(
     keys: [zikirButtonKey],
@@ -138,14 +130,7 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay>
   }
 
   Future<void> _measureStep() async {
-    final step = _coachSteps[_stepIndex];
-    if (step.beforeShow != null) {
-      step.beforeShow!();
-      await WidgetsBinding.instance.endOfFrame;
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-    }
-    await _showStep(step);
+    await _showStep(_coachSteps[_stepIndex]);
   }
 
   Future<void> _showStep(_CoachStep step) async {
@@ -245,8 +230,8 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay>
         final startOffset = center + const Offset(55, 55);
         final handPos = Offset.lerp(startOffset, center, enter)!;
 
-        // A single tap has one impact moment; a double-tap has two, close together.
-        final tapMoments = step.isDoubleTap ? const [0.12, 0.30] : const [0.15];
+        // Tek dokunuşun tek bir etki anı vardır.
+        const tapMoments = [0.15];
 
         double handScale = 1.0;
         final ripples = <Widget>[];

@@ -47,6 +47,27 @@ class WeatherDay {
 final ValueNotifier<List<WeatherDay>> weatherNotifier =
     ValueNotifier<List<WeatherDay>>(const []);
 
+/// Ayarlardaki "Hava durumu" anahtarı. Kapalıyken MET Norway'e hiçbir istek gitmez (varsayılan: açık).
+final ValueNotifier<bool> weatherEnabledNotifier = ValueNotifier<bool>(true);
+
+Future<void> loadWeatherEnabled() async {
+  final prefs = await SharedPreferences.getInstance();
+  weatherEnabledNotifier.value = prefs.getBool('weather_enabled') ?? true;
+}
+
+/// Anahtarı kaydeder; kapatılırsa kartı gizler ve saklanan veriyi siler, açılırsa [lat]/[lon] varsa yeniler.
+Future<void> setWeatherEnabled(bool enabled, {double? lat, double? lon}) async {
+  weatherEnabledNotifier.value = enabled;
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('weather_enabled', enabled);
+  if (!enabled) {
+    weatherNotifier.value = const [];
+    await prefs.remove('weather_cache');
+  } else if (lat != null && lon != null) {
+    await refreshWeather(lat, lon);
+  }
+}
+
 bool _loading = false;
 
 DateTime _today() {
@@ -64,6 +85,10 @@ List<WeatherDay> _upcoming(List<WeatherDay> days) =>
 /// Konum ya da gün değiştiğinde çağrılır. Aynı konum için 3 saatten yeni ve bugüne ait veri varsa
 /// ağa gitmez; internet yoksa kayıtlı veriden hâlâ geçerli olan günleri gösterir.
 Future<void> refreshWeather(double lat, double lon) async {
+  if (!weatherEnabledNotifier.value) {
+    weatherNotifier.value = const [];
+    return;
+  }
   if (_loading) return;
   _loading = true;
   try {
