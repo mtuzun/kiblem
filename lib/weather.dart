@@ -54,7 +54,9 @@ DateTime _today() {
   return DateTime(n.year, n.month, n.day);
 }
 
-double _trunc(double v) => (v * 10000).truncateToDouble() / 10000;
+/// Gizlilik için koordinatlar yaklaşık 1 km hassasiyetle (2 ondalık) gönderilir; hava durumu tahmini
+/// bu çözünürlükte değişmez. Önbellek anahtarı da aynı yuvarlamayı kullanır.
+String _coord(double v) => v.toStringAsFixed(2);
 
 List<WeatherDay> _upcoming(List<WeatherDay> days) =>
     days.where((d) => !d.date.isBefore(_today())).take(3).toList();
@@ -66,7 +68,7 @@ Future<void> refreshWeather(double lat, double lon) async {
   _loading = true;
   try {
     final prefs = await SharedPreferences.getInstance();
-    final key = '${lat.toStringAsFixed(2)},${lon.toStringAsFixed(2)}';
+    final key = '${_coord(lat)},${_coord(lon)}';
     List<WeatherDay> cached = const [];
     DateTime? fetchedAt;
     try {
@@ -95,7 +97,7 @@ Future<void> refreshWeather(double lat, double lon) async {
         .get(
           Uri.parse(
             'https://api.met.no/weatherapi/locationforecast/2.0/compact'
-            '?lat=${_trunc(lat)}&lon=${_trunc(lon)}',
+            '?lat=${_coord(lat)}&lon=${_coord(lon)}',
           ),
           headers: {'User-Agent': _userAgent},
         )
