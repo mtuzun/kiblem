@@ -36,7 +36,7 @@ class _PrivacyDialog extends StatelessWidget {
     final sections = <(String, String)>[
       (
         t('Veri sorumlusu', 'Data controller'),
-        'Metin Tüzün (mtuzun06@gmail.com)',
+        'Metin Tüzün (metintzn2026@gmail.com)',
       ),
       (
         t('İşlenen veriler', 'Data processed'),
