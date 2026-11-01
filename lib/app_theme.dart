@@ -835,26 +835,8 @@ class _ThemePickerScreenState extends State<ThemePickerScreen> {
                 PrayerTimesView(theme: theme, s: s),
                 const SizedBox(height: 16),
                 // Ana ekranın alt kısmını anımsatan sade örnek içerik.
-                Row(
-                  children: [
-                    for (final label in [t("Ayet-i Kerime", "Verse"), t("Vaktin Hadisi", "Hadith")])
-                      Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          child: Text(label, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
                 Container(
-                  height: 64,
+                  height: 96,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.92),
                     borderRadius: BorderRadius.circular(14),

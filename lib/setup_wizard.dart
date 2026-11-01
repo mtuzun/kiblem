@@ -21,7 +21,7 @@ class SetupWizard extends StatefulWidget {
 }
 
 class _SetupWizardState extends State<SetupWizard> {
-  static const int _pageCount = 5;
+  static const int _pageCount = 6;
   static const Color _gold = Color(0xFFE9C46A);
 
   int _page = 0;
@@ -201,6 +201,26 @@ class _SetupWizardState extends State<SetupWizard> {
     );
   }
 
+  /// Hesaplama yöntemi adımı: konum bulunduktan ya da şehir seçildikten sonra, konuma göre otomatik
+  /// seçilen yöntem gösterilir; "Değiştir" ile seçim ekranı açılır, dönünce ad güncellenir.
+  _Step _methodStep() {
+    final name = setupActions.methodSummary?.call() ?? "";
+    return _Step(
+      figure: 'kaaba',
+      dark: const Color(0xFF4A1F2B),
+      mid: const Color(0xFFA8435F),
+      title: t("Vakitleri nasıl hesaplayalım?", "How shall we calculate the times?"),
+      body: t(
+        "Konumunuza göre \"$name\" yöntemini seçtik. Ayarlar'dan istediğiniz zaman değiştirebilirsiniz.",
+        "Based on your location we chose \"$name\". You can change it any time in Settings.",
+      ),
+      primary: t("Uygun", "Looks good"),
+      onPrimary: _next,
+      secondary: t("Değiştir", "Change"),
+      onSecondary: () => _run(() async => await setupActions.openMethodScreen?.call(), advance: false),
+    );
+  }
+
   /// Alarm adımı: önce "kullanmak ister misiniz?" sorulur; "Evet" denince beş vakit varsayılan olarak
   /// açılır ve hangi vakitlerde, ne zaman çalacağı bu adımda seçilir (Ayarlar'daki aynı seçimler).
   _Step _alarmStep() {
@@ -287,6 +307,7 @@ class _SetupWizardState extends State<SetupWizard> {
       secondary: t('Listeden Seç', 'Choose from List'),
       onSecondary: () => _run(() async => await setupActions.pickCity?.call()),
     ),
+    _methodStep(),
     _alarmStep(),
     _Step(
       figure: 'tulip',

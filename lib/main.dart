@@ -34,12 +34,16 @@ import 'offline_quran.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'text_zoom.dart';
 import 'onboarding_screen.dart';
+import 'prayer_method.dart';
+import 'privacy_notice.dart';
+import 'rate_prompt.dart';
 import 'setup_wizard.dart';
 import 'qibla_screen.dart';
 import 'ad_banner.dart';
 import 'figures.dart';
 import 'app_theme.dart';
 import 'fit_height.dart';
+export 'privacy_notice.dart' show showPrivacyDetails;
 export 'qibla_compass.dart' show QiblaCompass;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -97,6 +101,10 @@ class SetupActions {
   Future<void> Function(int index)? pickAlarmMinutes;
   String Function(int index)? alarmName;
   String Function(int minutes, bool after)? minutesLabel;
+
+  /// Hesaplama yöntemi adımı: seçili yöntemin kısa adı ve seçim ekranını açma.
+  String Function()? methodSummary;
+  Future<void> Function()? openMethodScreen;
 }
 
 final SetupActions setupActions = SetupActions();
@@ -141,6 +149,7 @@ void main() async {
   await loadSavedLanguage();
   await loadSavedTextZoom();
   await loadWeatherEnabled();
+  await loadPrayerMethodSettings();
   unawaited(OfflineQuran.init());
 
   runApp(const MyApp());
@@ -189,57 +198,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-void showPrivacyDetails(BuildContext context) {
-  const policyUrl = 'https://mtuzun.github.io/kiblem/';
-  showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      scrollable: true,
-      title: Text(t("Gizlilik ve KVKK Bilgilendirmesi", "Privacy and KVKK Notice")),
-      content: SelectableText(
-        t(
-          "Veri sorumlusu: Metin Tüzün (mtuzun06@gmail.com).\n\n"
-              "Uygulama hesap istemez ve verilerinizi kendi sunucularında toplamaz veya saklamaz.\n\n"
-              "İşlenen veriler: Konumunuz (yalnızca izin verirseniz; namaz vakti ve kıble hesabı, şehir tespiti ve hava durumu için), seçtiğiniz şehir ve uygulama ayarlarınız. "
-              "Üçüncü taraf hizmetler IP adresinizi, reklam için ise cihaz bilgisini görebilir.\n\n"
-              "Amaç: Namaz vakitleri ve kıble hesabı, hava durumu, harita, Kur'an metni ve sesi, reklam.\n\n"
-              "Hukuki sebep: Konum için işletim sisteminin izin penceresinde verdiğiniz açık rıza. "
-              "Rızanızı cihaz ayarlarından istediğiniz zaman geri alabilirsiniz.\n\n"
-              "Aktarım: Hava durumu (MET Norway) ve reklam (Google AdMob) hizmetleri yurt dışındadır. "
-              "Hava durumu için koordinatlar yaklaşık 1 km hassasiyetle gönderilir; Ayarlar'dan hava durumunu kapatırsanız hiç gönderilmez.\n\n"
-              "KVKK m.11 kapsamındaki haklarınız (bilgi alma, düzeltme, silme, itiraz vb.) için yukarıdaki e-posta adresine "
-              "başvurabilirsiniz; başvurunuz en geç 30 gün içinde yanıtlanır.\n\n"
-              "Bu metin, 6698 sayılı KVKK'nın 10. maddesi kapsamında bilgilendirme amacıyla hazırlanmıştır; "
-              "uygulamayı kullanmak için ayrıca onay vermeniz gerekmez. Konum için açık rızanız işletim sisteminin "
-              "izin penceresiyle ayrıca alınır ve istediğiniz zaman geri alınabilir.\n\n"
-              "Ayrıntılı politika:\n$policyUrl",
-          "Data controller: Metin Tüzün (mtuzun06@gmail.com).\n\n"
-              "The app does not ask for an account and does not collect or store your data on servers of its own.\n\n"
-              "Data processed: Your location (only if you allow it; for prayer time and qibla calculation, finding your city and the weather), your chosen city and your app settings. "
-              "Third-party services may see your IP address and, for ads, device information.\n\n"
-              "Purposes: Prayer time and qibla calculation, weather, maps, Quran text and audio, and ads.\n\n"
-              "Legal basis: For location, the explicit consent you give in the operating system's permission prompt. "
-              "You can withdraw it at any time in your device settings.\n\n"
-              "Transfers: The weather (MET Norway) and advertising (Google AdMob) services are located abroad. "
-              "Coordinates sent for the weather have about 1 km precision, and none are sent if you turn the weather off in Settings.\n\n"
-              "For your rights under KVKK Art. 11 (access, correction, deletion, objection, etc.) write to the email "
-              "address above; requests are answered within 30 days.\n\n"
-              "This notice is provided for information under Article 10 of KVKK; you do not need to give a separate "
-              "approval to use the app. Your explicit consent for location is requested separately through the "
-              "operating system's permission prompt and can be withdrawn at any time.\n\n"
-              "Full policy:\n$policyUrl",
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(t("Kapat", "Close")),
-        ),
-      ],
-    ),
-  );
-}
-
 class AppEntry extends StatefulWidget {
   const AppEntry({super.key});
 
@@ -248,10 +206,25 @@ class AppEntry extends StatefulWidget {
 }
 
 class _AppEntryState extends State<AppEntry> {
+  /// Yeni kurulumda sihirbazdan sonra uygulama turu gösterilir. Ayarlar'dan yeniden başlatılan
+  /// kurulumdan sonra gösterilmez.
+  bool _tourPending = false;
+
   @override
   void initState() {
     super.initState();
     _checkOnboarding();
+    _maybeAskRating();
+  }
+
+  /// Birkaç açılıştan sonra bir kez "beğendiniz mi?" sorusu. Kurulum, tur ya da başka bir sayfa
+  /// açıksa sormaz; bir sonraki açılışta yeniden dener.
+  Future<void> _maybeAskRating() async {
+    if (!await countLaunchAndCheckRatingDue()) return;
+    await Future.delayed(const Duration(seconds: 8));
+    if (!mounted || showSetupWizard.value || showCoachMarks.value) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    await askForRating(context);
   }
 
   Future<void> _checkOnboarding() async {
@@ -260,6 +233,7 @@ class _AppEntryState extends State<AppEntry> {
     if (!seen) {
       // Yeni kurulumda önce kolay kurulum sihirbazı, ardından uygulama turu açılır. Uygulamayı
       // güncelleyen eski kullanıcılar (has_seen_onboarding kayıtlı) ikisini de görmez.
+      _tourPending = true;
       showSetupWizard.value = true;
     }
   }
@@ -282,7 +256,10 @@ class _AppEntryState extends State<AppEntry> {
             return SetupWizard(
               onFinished: () {
                 showSetupWizard.value = false;
-                showCoachMarks.value = true;
+                if (_tourPending) {
+                  _tourPending = false;
+                  showCoachMarks.value = true;
+                }
               },
             );
           },
@@ -577,6 +554,11 @@ class _MainScreenState extends State<MainScreen> {
     setupActions.pickAlarmMinutes = _pickAlarmMinutes;
     setupActions.alarmName = (i) => _getPrayerName(_prayerFromIndex(i));
     setupActions.minutesLabel = _minutesLabel;
+    setupActions.methodSummary = () => resolvedMethod().label;
+    setupActions.openMethodScreen = _openMethodScreen;
+    calcMethodNotifier.addListener(_onMethodChanged);
+    asrMadhabNotifier.addListener(_onMethodChanged);
+    calcCountryNotifier.addListener(_onMethodChanged);
     langNotifier.addListener(_onLangChanged);
     themeNotifier.addListener(_onAppearanceChanged);
     colorThemeNotifier.addListener(_onAppearanceChanged);
@@ -658,6 +640,11 @@ class _MainScreenState extends State<MainScreen> {
     setupActions.pickAlarmMinutes = null;
     setupActions.alarmName = null;
     setupActions.minutesLabel = null;
+    setupActions.methodSummary = null;
+    setupActions.openMethodScreen = null;
+    calcMethodNotifier.removeListener(_onMethodChanged);
+    asrMadhabNotifier.removeListener(_onMethodChanged);
+    calcCountryNotifier.removeListener(_onMethodChanged);
     langNotifier.removeListener(_onLangChanged);
     themeNotifier.removeListener(_onAppearanceChanged);
     colorThemeNotifier.removeListener(_onAppearanceChanged);
@@ -1222,7 +1209,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   /// Konumdan şehir bulur. Şehir adını bulmak internet ister; yoksa koordinata en yakın şehre düşülür.
-  Future<({String city, bool geocoded})> _cityForPosition(Position position) async {
+  Future<({String city, bool geocoded, String? country})> _cityForPosition(Position position) async {
     List<Placemark> placemarks = [];
     try {
       placemarks = await placemarkFromCoordinates(position.latitude, position.longitude)
@@ -1244,7 +1231,16 @@ class _MainScreenState extends State<MainScreen> {
       (c) => c.toLowerCase() == foundCity.toLowerCase(),
       orElse: () => "İstanbul",
     );
-    return (city: matched, geocoded: geocoded);
+    // Ülke kodu "Otomatik" hesaplama yöntemini belirler. İnternet yoksa Türk şehirlerine yakınsa
+    // Türkiye, değilse bilinmiyor (null) sayılır.
+    var country = place?.isoCountryCode;
+    if (country == null || country.isEmpty) {
+      final c = cityCoordinates[_nearestCity(position.latitude, position.longitude)];
+      final near = c != null &&
+          Geolocator.distanceBetween(position.latitude, position.longitude, c[0], c[1]) < 450000;
+      country = near ? 'TR' : null;
+    }
+    return (city: matched, geocoded: geocoded, country: country);
   }
 
   Future<void> _findLocationInBackground() async {
@@ -1292,6 +1288,7 @@ class _MainScreenState extends State<MainScreen> {
         activeCoordinates = Coordinates(position.latitude, position.longitude);
       });
       await _saveCity(found.city);
+      await setCalcCountry(found.country);
       _calculatePrayerTimes(activeCoordinates!);
       _showSnackBar(found.geocoded
           ? t("${found.city} konumu bulundu.", "Location found: ${found.city}.")
@@ -1346,6 +1343,7 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {
           activeCoordinates = Coordinates(position.latitude, position.longitude);
         });
+        await setCalcCountry(found.country);
         _calculatePrayerTimes(activeCoordinates!);
         return;
       }
@@ -1382,6 +1380,7 @@ class _MainScreenState extends State<MainScreen> {
           activeCoordinates = Coordinates(position.latitude, position.longitude);
         });
         await _saveCity(found.city);
+        await setCalcCountry(found.country);
         await prefs.remove('declined_location_city');
         _calculatePrayerTimes(activeCoordinates!);
       } else if (switchCity == false) {
@@ -1417,8 +1416,26 @@ class _MainScreenState extends State<MainScreen> {
 
   /// Diyanet'in yayımladığı vakitlerle uyumlu hesap: Türkiye yöntemi ve standart (Şâfiî) ikindi.
   /// Hanefi ikindi (gölge boyu 2 katı) yaklaşık 45 dakika daha geç çıkar ve Diyanet takviminden farklıdır.
-  CalculationParameters _prayerCalcParams() {
-    return CalculationMethod.turkey.getParameters()..madhab = Madhab.shafi;
+  CalculationParameters _prayerCalcParams() => buildPrayerParams();
+
+  /// Yöntem ya da ikindi kuralı değişince vakitler, alarmlar ve widget yeniden hesaplanır.
+  void _onMethodChanged() {
+    final c = activeCoordinates;
+    if (c != null && mounted) _calculatePrayerTimes(c);
+  }
+
+  Future<void> _openMethodScreen() async {
+    final c = activeCoordinates;
+    if (c == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PrayerMethodScreen(
+          coordinates: c,
+          getPrayerName: _getPrayerName,
+        ),
+      ),
+    );
   }
 
   void _calculatePrayerTimes(Coordinates coordinates) {
@@ -1696,6 +1713,7 @@ class _MainScreenState extends State<MainScreen> {
       prayerTimes = null;
     });
     _saveCity(picked);
+    await setCalcCountry('TR');
     await _calculatePrayerTimesForCity(picked);
   }
 
@@ -2456,6 +2474,23 @@ class _MainScreenState extends State<MainScreen> {
             ),
             _settingsSection(
               context,
+              t("Hesaplama Yöntemi", "Calculation Method"),
+              [
+                ValueListenableBuilder<String>(
+                  valueListenable: calcMethodNotifier,
+                  builder: (context, _, _) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calculate_outlined),
+                    title: Text(methodSummary()),
+                    subtitle: Text(madhabLabel(asrMadhabNotifier.value)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _openMethodScreen,
+                  ),
+                ),
+              ],
+            ),
+            _settingsSection(
+              context,
               t("Hava Durumu", "Weather"),
               [
                 ValueListenableBuilder<bool>(
@@ -2485,6 +2520,15 @@ class _MainScreenState extends State<MainScreen> {
               [
                 _buildOfflineTile(),
                 const Divider(height: 24),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.auto_fix_high),
+                  title: Text(t("Kolay Kurulumu Yeniden Başlat", "Run Easy Setup Again")),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showSetupWizard.value = true;
+                  },
+                ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.play_circle_outline),
@@ -2825,6 +2869,7 @@ class _MainScreenState extends State<MainScreen> {
                             prayerTimes = null; // show loading
                           });
                           _saveCity(newValue);
+                          setCalcCountry('TR');
                           _calculatePrayerTimesForCity(newValue);
                         }
                       },
