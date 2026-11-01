@@ -32,8 +32,11 @@ CalculationParameters _angles(double fajr, double isha) =>
     CalculationParameters(method: CalculationMethod.other, fajrAngle: fajr, ishaAngle: isha);
 
 final List<PrayerMethod> prayerMethods = [
+  // Türkiye'de Hanefi çoğunlukta: Otomatik ikindi Hanefi (gölge 2 katı). Diyanet takvimiyle birebir
+  // vakit isteyenler İkindi Hesabı'ndan "Standart"ı seçer.
   PrayerMethod('turkey', 'Türkiye - Diyanet İşleri Başkanlığı', 'Turkey - Diyanet (Religious Affairs)',
-      CalculationMethod.turkey.getParameters),
+      CalculationMethod.turkey.getParameters,
+      hanafiAsr: true),
   PrayerMethod('muslim_world_league', 'Müslüman Dünya Ligi', 'Muslim World League',
       CalculationMethod.muslim_world_league.getParameters),
   PrayerMethod('egyptian', 'Mısır - Genel Araştırma Kurumu', 'Egypt - General Authority of Survey',
@@ -181,9 +184,8 @@ Madhab resolvedMadhab() {
   }
 }
 
-/// Seçime göre hesaplama parametreleri. Varsayılan (Otomatik, Türkiye): Diyanet'in yayımladığı
-/// vakitlerle uyumlu Türkiye yöntemi ve standart (Şâfiî) ikindi; Hanefi ikindi yaklaşık 45 dakika
-/// daha geç çıkar ve Diyanet takviminden farklıdır.
+/// Seçime göre hesaplama parametreleri. Varsayılan (Otomatik, Türkiye): Diyanet açıları ve Hanefi
+/// ikindi. Standart (Şâfiî) ikindi yaklaşık 45 dakika daha erken çıkar ve Diyanet takvimiyle aynıdır.
 CalculationParameters buildPrayerParams() {
   final params = resolvedMethod().build();
   params.madhab = resolvedMadhab();

@@ -16,12 +16,21 @@ void main() {
     calcCountryNotifier.value = 'TR';
   });
 
-  test('varsayılan hesap eski davranışla aynı: Türkiye yöntemi ve standart ikindi', () {
-    final old = CalculationMethod.turkey.getParameters()..madhab = Madhab.shafi;
-    final a = _times(old, istanbul);
+  test('varsayılan hesap: Diyanet açıları ve Hanefi ikindi', () {
+    final expected = CalculationMethod.turkey.getParameters()..madhab = Madhab.hanafi;
+    final a = _times(expected, istanbul);
     final b = _times(buildPrayerParams(), istanbul);
     for (final p in [Prayer.fajr, Prayer.sunrise, Prayer.dhuhr, Prayer.asr, Prayer.maghrib, Prayer.isha]) {
       expect(b.timeForPrayer(p), a.timeForPrayer(p), reason: p.name);
+    }
+  });
+
+  test('Standart ikindi seçilince vakitler Diyanet takvimiyle aynı eski hesaba döner', () {
+    asrMadhabNotifier.value = 'standard';
+    final diyanet = _times(CalculationMethod.turkey.getParameters()..madhab = Madhab.shafi, istanbul);
+    final b = _times(buildPrayerParams(), istanbul);
+    for (final p in [Prayer.fajr, Prayer.sunrise, Prayer.dhuhr, Prayer.asr, Prayer.maghrib, Prayer.isha]) {
+      expect(b.timeForPrayer(p), diyanet.timeForPrayer(p), reason: p.name);
     }
   });
 
@@ -48,7 +57,7 @@ void main() {
     expect(buildPrayerParams().fajrAngle, 19.5);
   });
 
-  test('Hanefi ikindi standarttan geç çıkar; Otomatik Karaçi Hanefi kullanır', () {
+  test('Hanefi ikindi standarttan geç çıkar; Otomatik Türkiye ve Karaçi Hanefi, diğerleri standart', () {
     asrMadhabNotifier.value = 'standard';
     final standard = _times(buildPrayerParams(), istanbul).asr;
     asrMadhabNotifier.value = 'hanafi';
@@ -59,6 +68,8 @@ void main() {
     calcMethodNotifier.value = 'karachi';
     expect(resolvedMadhab(), Madhab.hanafi);
     calcMethodNotifier.value = 'turkey';
+    expect(resolvedMadhab(), Madhab.hanafi);
+    calcMethodNotifier.value = 'muslim_world_league';
     expect(resolvedMadhab(), Madhab.shafi);
   });
 
