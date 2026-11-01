@@ -72,3 +72,11 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+    publishing:
+      # Süreli indirme bağlantısı e-postayla gelir; TestFlight'a ya da mağazaya gitmez.
+      email:
+        recipients:
+          - metintzn2026@gmail.com
+        notify:
+          success: true
+          failure: false
